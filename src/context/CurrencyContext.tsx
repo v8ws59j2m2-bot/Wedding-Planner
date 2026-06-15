@@ -36,7 +36,7 @@ export function CurrencyProvider({ children }: { children: React.ReactNode }) {
   const rates = rateState.rates
 
   const display = (gbp: number) =>
-    displayAmount(gbp, prefs.display, rates, false)
+    displayAmount(gbp, prefs.display, rates, prefs.showBoth)
 
   const displayBoth = (gbp: number) => {
     if (!rates || prefs.display === 'GBP') return formatAmount(gbp, 'GBP')

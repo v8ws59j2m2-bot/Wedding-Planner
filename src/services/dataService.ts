@@ -27,11 +27,13 @@ const KEYS = {
 
 // ── Default data ──────────────────────────────────────────────────────────────
 export const DEFAULT_APP_DATA: AppData = {
-  guests:    [],
-  budget:    [],
-  checklist: [],
-  vendors:   [],
-  moodImages:[],
+  guests:     [],
+  budget:     [],
+  checklist:  [],
+  vendors:    [],
+  moodImages: [],
+  events:     [],
+  travelInfo: [],
 }
 
 export const DEFAULT_WEDDING_DETAILS: WeddingDetails = {
@@ -55,12 +57,37 @@ function readJSON<T>(key: string, fallback: T): T {
 }
 
 function writeJSON(key: string, value: unknown): void {
-  localStorage.setItem(key, JSON.stringify(value))
+  try {
+    localStorage.setItem(key, JSON.stringify(value))
+  } catch (e) {
+    // QuotaExceededError — storage is full (most likely large Mood Board images)
+    if (e instanceof DOMException && (
+      e.name === 'QuotaExceededError' ||
+      e.name === 'NS_ERROR_DOM_QUOTA_REACHED'
+    )) {
+      // Dispatch a custom event so the UI can show a friendly message
+      window.dispatchEvent(new CustomEvent('storage-quota-exceeded', {
+        detail: { key, estimatedKB: Math.round(JSON.stringify(value).length / 1024) }
+      }))
+      console.error('[storage] Quota exceeded writing key:', key)
+    } else {
+      throw e
+    }
+  }
 }
 
 // ── AppData ───────────────────────────────────────────────────────────────────
 export function loadAppData(): AppData {
-  return { ...DEFAULT_APP_DATA, ...readJSON<AppData>(KEYS.appData, DEFAULT_APP_DATA) }
+  const raw = { ...DEFAULT_APP_DATA, ...readJSON<AppData>(KEYS.appData, DEFAULT_APP_DATA) }
+  // Migrate legacy guests: populate firstName/lastName from name if missing
+  raw.guests = raw.guests.map(g => {
+    if (!g.firstName && !g.lastName && g.name) {
+      const parts = g.name.split('&')[0].trim().split(' ')
+      return { ...g, firstName: parts[0] ?? '', lastName: parts.slice(1).join(' ') || undefined }
+    }
+    return g
+  })
+  return raw
 }
 
 export function saveAppData(data: AppData): void {
@@ -232,7 +259,7 @@ export function exportGuestsCSV(guests: Guest[]): void {
         if (g.firstName || g.lastName) return `${g.firstName ?? ''} ${g.lastName ?? ''}`.trim()
         return g.name.split('&')[0].trim()
       },
-      guestAgeCategory: (g: Guest) => g.ageCategory ?? (g.children > 0 ? 'child' : 'adult'),
+      guestAgeCategory: (g: Guest) => g.ageCategory ?? ((g.children ?? 0) > 0 ? 'child' : 'adult'),
     }
   })()
   const header = ['First Name', 'Last Name', 'Party Name', 'Age Category', 'Email', 'Meal', 'Notes']
@@ -265,7 +292,9 @@ export function parseImport(text: string, filename: string): ImportResult {
         budget:    parsed.budget    ?? undefined,
         checklist: parsed.checklist ?? undefined,
         vendors:   parsed.vendors   ?? undefined,
-        moodImages:parsed.moodImages ?? undefined,
+        moodImages: parsed.moodImages ?? undefined,
+        events:     parsed.events    ?? undefined,
+        travelInfo: parsed.travelInfo ?? undefined,
       }
       return { success: true, data }
     }

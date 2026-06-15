@@ -6,6 +6,8 @@ function useScrollY() {
   useEffect(() => {
     const el = document.getElementById('main-scroll')
     if (!el) return
+    // Initialise from current scroll position to avoid jump on first scroll
+    setY(el.scrollTop)
     const handler = () => setY(el.scrollTop)
     el.addEventListener('scroll', handler, { passive: true })
     return () => el.removeEventListener('scroll', handler)

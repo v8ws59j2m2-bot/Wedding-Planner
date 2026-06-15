@@ -113,11 +113,17 @@ export function CurrencyToggle() {
             <RefreshCw size={10} style={{ animation: 'spinSlow 1s linear infinite' }}/> Updating rates…
           </span>
         )}
-        {!loading && lastUpdated && (
-          <span style={{ fontSize: 10, color: '#7A6657', opacity: 0.7 }}>
-            Rates: {lastUpdated.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })} {lastUpdated.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}
-          </span>
-        )}
+        {!loading && lastUpdated && (() => {
+          const ageHours = (Date.now() - lastUpdated.getTime()) / 3600000
+          const stale = ageHours > 8
+          return (
+            <span style={{ fontSize: 10, color: stale ? '#C47A52' : '#7A6657', opacity: stale ? 1 : 0.7,
+              display: 'flex', alignItems: 'center', gap: 3 }}>
+              {stale && <span title="Rates may be outdated — click refresh">⚠</span>}
+              Rates: {lastUpdated.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })} {lastUpdated.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}
+            </span>
+          )
+        })()}
         {!loading && (
           <button onClick={refetch} title="Refresh exchange rates"
             style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#C8A45D', padding: 2, lineHeight: 1 }}>
@@ -135,19 +141,18 @@ export function CurrencyToggle() {
 // ── Inline amount with secondary currency ─────────────────────────────────────
 // Use this where showing both currencies side-by-side is helpful
 export function DualAmount({ gbp, compact = false }: { gbp: number; compact?: boolean }) {
-  const { display, displayBoth, prefs } = useCurrencyContext()
+  const { display, format, prefs } = useCurrencyContext()
   if (!prefs.showBoth || prefs.display === 'GBP') {
     return <span>{display(gbp)}</span>
   }
+  const gbpStr = format(gbp, 'GBP')
   if (compact) {
     return (
       <span>
         {display(gbp)}
-        <span style={{ fontSize: '0.8em', opacity: 0.6, marginLeft: 4 }}>
-          ({displayBoth(gbp).split('·')[1]?.trim()})
-        </span>
+        <span style={{ fontSize: '0.8em', opacity: 0.6, marginLeft: 4 }}>({gbpStr})</span>
       </span>
     )
   }
-  return <span>{displayBoth(gbp)}</span>
+  return <span>{display(gbp)} · {gbpStr}</span>
 }

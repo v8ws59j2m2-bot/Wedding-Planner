@@ -1,33 +1,31 @@
 import { useState, useEffect } from 'react'
 import { Menu, Download, Upload } from 'lucide-react'
 import type { Page } from '../types'
+import { loadWeddingDetails } from '../services/dataService'
+import { HelpPanel } from './HelpPanel'
 
 const PAGE_TITLES: Record<Page, string> = {
-  dashboard: 'Dashboard',
-  guests: 'Guest List',
-  budget: 'Budget',
-  checklist: 'Checklist',
-  vendors: 'Vendors',
-  moodboard: 'Mood Board',
-  seating: 'Seating Chart',
-  accommodation: 'Accommodation',
-  finances: 'Financial Overview',
-  settings: 'Settings & Data',
+  dashboard:        'Dashboard',
+  guests:           'Guest List',
+  'budget-payments':'Budget & Payments',
+  vendors:          'Vendors',
+  accommodation:    'Accommodation',
+  seating:          'Seating Chart',
+  planning:         'Planning',
+  settings:         'Settings & Data',
 }
 
-const WEDDING_DATE = new Date('2028-04-05T00:00:00')
-
-function useCountdown() {
+function useCountdown(weddingDate: Date) {
   const [days, setDays] = useState(0)
   useEffect(() => {
     const update = () => {
-      const diff = WEDDING_DATE.getTime() - Date.now()
+      const diff = weddingDate.getTime() - Date.now()
       setDays(Math.max(0, Math.ceil(diff / 86400000)))
     }
     update()
-    const t = setInterval(update, 60000)
+    const t = setInterval(update, 60 * 1000)
     return () => clearInterval(t)
-  }, [])
+  }, [weddingDate.getTime()])
   return days
 }
 
@@ -36,11 +34,13 @@ interface Props {
   onToggleSidebar: () => void
   onExport: () => void
   onImport: (f: File) => void
+  onStartTour: (tourId: string) => void
   isMobile?: boolean
 }
 
-export function TopBar({ page, onToggleSidebar, onExport, onImport, isMobile }: Props) {
-  const days = useCountdown()
+export function TopBar({ page, onToggleSidebar, onExport, onImport, onStartTour, isMobile }: Props) {
+  const weddingDate = new Date(loadWeddingDetails().date + 'T00:00:00')
+  const days = useCountdown(weddingDate)
 
   return (
     <header style={{
@@ -85,9 +85,9 @@ export function TopBar({ page, onToggleSidebar, onExport, onImport, isMobile }: 
             padding: '6px 14px', borderRadius: 20,
             backgroundColor: '#FAF3E6', border: '1px solid #E8D5A3' }}>
             <span style={{ fontFamily: 'Playfair Display, serif', fontStyle: 'italic', color: '#C47A52', fontSize: 13 }}>
-              {days} days
+              {days === 0 ? 'Today!' : `${days} days`}
             </span>
-            <span style={{ color: '#7A6657', fontSize: 12 }}>to Bali</span>
+            {days > 0 && <span style={{ color: '#7A6657', fontSize: 12 }}>to Bali</span>}
           </div>
         )}
 
@@ -112,6 +112,9 @@ export function TopBar({ page, onToggleSidebar, onExport, onImport, isMobile }: 
           <input type="file" accept=".json" style={{ display: 'none' }}
             onChange={e => e.target.files?.[0] && onImport(e.target.files[0])}/>
         </label>
+
+        {/* Help */}
+        <HelpPanel onStartTour={onStartTour}/>
       </div>
     </header>
   )

@@ -1,8 +1,12 @@
 import { useState, useRef } from 'react'
 import {
   Download, Upload, Trash2, Save, AlertTriangle,
-  CheckCircle, RefreshCw, Heart, Shield,
+  CheckCircle, RefreshCw, Heart, Shield, FileSpreadsheet,
 } from 'lucide-react'
+import {
+  downloadGuestsTemplate, downloadVendorsTemplate, downloadBudgetTemplate,
+  downloadAccommodationTemplate, downloadEventsTemplate, downloadChecklistTemplate,
+} from '../lib/csvTemplates'
 import { SmallLeaf, Frangipani, BaliBorder, TempleGate } from '../components/Botanicals'
 import { useCurrencyContext } from '../context/CurrencyContext'
 import { CURRENCY_LABELS } from '../hooks/useCurrency'
@@ -330,6 +334,8 @@ export function Settings({ data, setData }: Props) {
       checklist: [...d.checklist, ...(imported.checklist ?? [])],
       vendors:   [...d.vendors,   ...(imported.vendors   ?? [])],
       moodImages:[...(d.moodImages ?? []), ...(imported.moodImages ?? [])],
+      events:      [...(d.events ?? []), ...(imported.events ?? [])],
+      travelInfo:  [...(d.travelInfo ?? []), ...(imported.travelInfo ?? [])],
     }))
     setImportFile(null)
   }
@@ -341,12 +347,14 @@ export function Settings({ data, setData }: Props) {
       checklist: imported.checklist ?? [],
       vendors:   imported.vendors   ?? [],
       moodImages:imported.moodImages ?? [],
+      events:     imported.events     ?? [],
+      travelInfo: imported.travelInfo ?? [],
     })
     setImportFile(null)
   }
 
   const handleClear = () => {
-    setData({ guests: [], budget: [], checklist: [], vendors: [], moodImages: [] })
+    setData({ guests: [], budget: [], checklist: [], vendors: [], moodImages: [], events: [], travelInfo: [] })
     localStorage.removeItem('jb-seating')
     localStorage.removeItem('jb-moodboard')
     localStorage.removeItem('jb-timeline')
@@ -629,6 +637,58 @@ export function Settings({ data, setData }: Props) {
             onClick={() => setShowClear(true)}
           />
         </div>
+      </section>
+
+      {/* ── Excel templates ── */}
+      <section style={{ marginTop: 48 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
+          <div style={{ width: 3, height: 18, backgroundColor: '#7F9A78', borderRadius: 2 }}/>
+          <h2 style={{ fontFamily: 'Playfair Display, serif', fontSize: 18, color: '#3B2A22', margin: 0 }}>
+            CSV Import Templates
+          </h2>
+          <FileSpreadsheet size={16} style={{ color: '#7F9A78' }} strokeWidth={1.5}/>
+        </div>
+        <p style={{ fontSize: 13, color: '#7A6657', marginBottom: 20, lineHeight: 1.6 }}>
+          Download a CSV template for any section, fill it in with your data, then import it using the Import button above.
+          Each template includes example rows so you can see exactly how to format your data.
+        </p>
+
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 12 }}>
+          {[
+            { label: 'Guests', emoji: '👥', desc: 'Names, party groups, meal prefs', fn: downloadGuestsTemplate },
+            { label: 'Vendors', emoji: '🏪', desc: 'Suppliers, categories, status', fn: downloadVendorsTemplate },
+            { label: 'Budget & Expenses', emoji: '💳', desc: 'Expense items with amounts', fn: downloadBudgetTemplate },
+            { label: 'Checklist', emoji: '✅', desc: 'Tasks, priorities, due dates', fn: downloadChecklistTemplate },
+            { label: 'Accommodation', emoji: '🏨', desc: 'Rooms, types, capacities', fn: downloadAccommodationTemplate },
+            { label: 'Events & Activities', emoji: '🌴', desc: 'Wedding events + activities', fn: downloadEventsTemplate },
+          ].map(t => (
+            <button key={t.label} onClick={t.fn}
+              style={{
+                display: 'flex', alignItems: 'center', gap: 12, padding: '14px 16px',
+                borderRadius: 14, border: '1.5px solid #E8D5A3', background: '#FAF3E6',
+                cursor: 'pointer', textAlign: 'left', transition: 'all 0.15s',
+              }}
+              onMouseEnter={e => {
+                ;(e.currentTarget as HTMLElement).style.borderColor = 'rgba(127,154,120,0.5)'
+                ;(e.currentTarget as HTMLElement).style.background = 'rgba(127,154,120,0.07)'
+              }}
+              onMouseLeave={e => {
+                ;(e.currentTarget as HTMLElement).style.borderColor = '#E8D5A3'
+                ;(e.currentTarget as HTMLElement).style.background = '#FAF3E6'
+              }}>
+              <span style={{ fontSize: 22, flexShrink: 0 }}>{t.emoji}</span>
+              <div style={{ minWidth: 0 }}>
+                <p style={{ fontSize: 13, fontWeight: 600, color: '#3B2A22', marginBottom: 2 }}>{t.label}</p>
+                <p style={{ fontSize: 11, color: '#7A6657' }}>{t.desc}</p>
+              </div>
+              <Download size={13} style={{ color: '#7F9A78', flexShrink: 0, marginLeft: 'auto' }}/>
+            </button>
+          ))}
+        </div>
+
+        <p style={{ fontSize: 11, color: '#A89080', fontStyle: 'italic', marginTop: 12 }}>
+          Templates download as .csv files. Open in Excel, Google Sheets, or Numbers. Delete the example rows, fill in your data, save as CSV, then import using the Import button above.
+        </p>
       </section>
 
       {/* Hidden file input */}

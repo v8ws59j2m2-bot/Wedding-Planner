@@ -38,7 +38,9 @@ export function CurrencyAmountInput({
   const gbpEquiv: number | null = (() => {
     if (!localAmount || inputCurrency === 'GBP') return null
     if (!rates) return null
-    return (localAmount as number) / rates.IDR
+    const n = localAmount as number
+    if (!Number.isFinite(n) || n <= 0) return null
+    return n / rates.IDR
   })()
 
   const lbl: React.CSSProperties = {

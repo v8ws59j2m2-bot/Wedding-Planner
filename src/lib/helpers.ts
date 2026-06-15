@@ -23,7 +23,8 @@ export function formatBytes(bytes: number): string {
 
 export function base64Size(b64: string): number {
   const base = b64.split(',')[1] ?? b64
-  return Math.round((base.length * 3) / 4)
+  const padding = (base.endsWith('==') ? 2 : base.endsWith('=') ? 1 : 0)
+  return Math.floor((base.length / 4) * 3) - padding
 }
 
 // ── Guest helpers ─────────────────────────────────────────────────────────────
@@ -37,13 +38,13 @@ export function guestDisplayName(g: Guest): string {
 
 export function guestAgeCategory(g: Guest): 'adult' | 'child' {
   if (g.ageCategory) return g.ageCategory
-  return g.children > 0 ? 'child' : 'adult'
+  // Legacy fallback: use children count from old schema
+  return (g.children ?? 0) > 0 ? 'child' : 'adult'
 }
 
-/** Returns 1 — each guest record is one person in the new model */
-export function guestHeadcount(g: Guest): number {
-  if (g.ageCategory !== undefined) return 1
-  return (g.adults ?? 1) + (g.children ?? 0)
+/** Each guest record is one person in the current model */
+export function guestHeadcount(_g: Guest): number {
+  return 1
 }
 
 export function makeGuestRecord(
@@ -62,7 +63,7 @@ export function makeGuestRecord(
 
 // ── Vendor helpers ────────────────────────────────────────────────────────────
 export function vendorDeposit(v: Vendor): number {
-  return v.deposit ?? v.paid ?? 0
+  return v.deposit ?? 0
 }
 
 export function vendorBalance(v: Vendor): number {
@@ -98,6 +99,28 @@ export function vendorToBudgetCategory(vendorCat: string): string {
     'Miscellaneous':   'Miscellaneous',
   }
   return map[vendorCat] ?? 'Miscellaneous'
+}
+
+// ── Payment stage helpers ─────────────────────────────────────────────────────
+import type { PaymentStage } from '../types'
+
+export function paymentStageAmount(stage: PaymentStage, estimated: number): number {
+  return stage.type === 'percentage' ? (estimated * stage.value) / 100 : stage.value
+}
+
+export function countOverduePayments(budget: import('../types').BudgetItem[]): number {
+  const now = new Date(); now.setHours(0, 0, 0, 0)
+  return budget.filter(b => {
+    if ((b.status ?? 'booked') !== 'booked') return false
+    const paidSoFar = (b.payments ?? []).reduce((s, p) => s + p.amount, 0)
+    if (Math.max(0, b.estimated - paidSoFar) <= 0) return false
+    const stageOverdue = (b.paymentStages ?? []).some(s =>
+      !s.paid && new Date(s.dueDate + 'T00:00:00') < now
+    )
+    const finalOverdue = b.finalBalanceDue && !b.finalBalanceTBC &&
+      new Date(b.finalBalanceDue + 'T00:00:00') < now
+    return stageOverdue || !!finalOverdue
+  }).length
 }
 
 // ── Date helpers ──────────────────────────────────────────────────────────────

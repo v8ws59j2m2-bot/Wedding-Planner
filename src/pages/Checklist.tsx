@@ -16,10 +16,13 @@ import {
 import { SmallLeaf, Frangipani, BaliBorder } from '../components/Botanicals'
 import type { ChecklistItem, AppData } from '../types'
 
+import { uid } from '../lib/helpers'
+
 // ── helpers ───────────────────────────────────────────────────────────────────
-function uid() { return Math.random().toString(36).slice(2, 10) }
-const WEDDING = new Date('2028-04-05T00:00:00')
-function monthsUntil() { return Math.max(0, (WEDDING.getTime() - Date.now()) / (1000 * 60 * 60 * 24 * 30.5)) }
+function monthsUntil() {
+  const wedding = new Date((() => { try { const r = localStorage.getItem('jb-wedding-details'); return r ? JSON.parse(r).date : '2028-04-05' } catch { return '2028-04-05' } })() + 'T00:00:00')
+  return Math.max(0, (wedding.getTime() - Date.now()) / (1000 * 60 * 60 * 24 * 30.5))
+}
 function exportJSON(data: AppData) {
   const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' })
   const url = URL.createObjectURL(blob)

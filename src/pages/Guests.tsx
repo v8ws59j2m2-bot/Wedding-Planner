@@ -5,14 +5,9 @@ import {
 } from 'lucide-react'
 import { SmallLeaf, Frangipani, BaliBorder } from '../components/Botanicals'
 import type { Guest, AppData } from '../types'
+import { uid, guestDisplayName as displayName, guestAgeCategory } from '../lib/helpers'
 
 // ── helpers ───────────────────────────────────────────────────────────────────
-function uid() { return Math.random().toString(36).slice(2, 10) }
-
-function displayName(g: Guest) {
-  if (g.firstName || g.lastName) return `${g.firstName ?? ''} ${g.lastName ?? ''}`.trim()
-  return g.name ?? ''
-}
 
 // Derive a Guest from new fields, maintaining legacy compat
 function makeGuest(fields: Omit<Guest, 'id' | 'name' | 'attending' | 'adults' | 'children'>): Omit<Guest, 'id'> {
@@ -66,11 +61,12 @@ function parseCSV(text: string): Omit<Guest, 'id'>[] {
     }
     const firstName   = get('first name', 'firstname', 'first_name') || get('name')
     const lastName    = get('last name', 'lastname', 'last_name')
-    const partyName   = get('party name', 'partyname', 'party', 'family', 'group')
+    const partyName   = get('party name', 'party / family name', 'partyname', 'party', 'family', 'group')
     const ageCat      = get('age category', 'agecategory', 'age', 'type')
     const ageCategory = ageCat.toLowerCase().includes('child') ? 'child' : 'adult'
     return makeGuest({ firstName, lastName: lastName || undefined, partyName: partyName || undefined,
-      ageCategory, email: get('email') || undefined, meal: get('meal') || undefined,
+      ageCategory, email: get('email') || undefined,
+      meal: get('meal', 'meal preference', 'meal_preference') || undefined,
       notes: get('notes') || undefined })
   }).filter(g => g.name)
 }
@@ -214,7 +210,7 @@ function GuestModal({ initial, existingParties, onSave, onClose }: {
       firstName: initial.firstName ?? initial.name.split(' ')[0] ?? '',
       lastName:  initial.lastName  ?? initial.name.split(' ').slice(1).join(' ') ?? '',
       partyName: initial.partyName ?? '',
-      ageCategory: initial.ageCategory ?? (initial.children > 0 ? 'child' : 'adult'),
+      ageCategory: guestAgeCategory(initial),
       email: initial.email ?? '', meal: initial.meal ?? '',
       notes: initial.notes ?? '',
     } : { ...EMPTY }
@@ -369,8 +365,8 @@ function PartyGroup({ partyName, guests, onEdit, onDelete }: {
   onDelete: (id: string) => void
 }) {
   const [open, setOpen] = useState(true)
-  const adults   = guests.filter(g => (g.ageCategory ?? (g.children > 0 ? 'child' : 'adult')) === 'adult').length
-  const children = guests.filter(g => (g.ageCategory ?? (g.children > 0 ? 'child' : 'adult')) === 'child').length
+  const adults   = guests.filter(g => guestAgeCategory(g) === 'adult').length
+  const children = guests.filter(g => guestAgeCategory(g) === 'child').length
 
   return (
     <div style={{ marginBottom: 8 }}>
@@ -402,7 +398,7 @@ function PartyGroup({ partyName, guests, onEdit, onDelete }: {
       {open && (
         <div style={{ border: '1.5px solid #E8D5A3', borderTop: 'none', borderRadius: '0 0 12px 12px', overflow: 'hidden' }}>
           {guests.map((g, i) => {
-            const isChild = (g.ageCategory ?? (g.children > 0 ? 'child' : 'adult')) === 'child'
+            const isChild = guestAgeCategory(g) === 'child'
             return (
               <div key={g.id}
                 style={{
@@ -510,8 +506,8 @@ export function Guests({ data, setData }: Props) {
 
   // Stats
   const total    = guests.length
-  const adults   = guests.filter(g => (g.ageCategory ?? (g.children > 0 ? 'child' : 'adult')) === 'adult').length
-  const children = guests.filter(g => (g.ageCategory ?? (g.children > 0 ? 'child' : 'adult')) === 'child').length
+  const adults   = guests.filter(g => guestAgeCategory(g) === 'adult').length
+  const children = guests.filter(g => guestAgeCategory(g) === 'child').length
 
   // All party names
   const allParties = useMemo(() => {
@@ -702,7 +698,7 @@ export function Guests({ data, setData }: Props) {
             ))}
           </div>
           {filtered.map((g, i) => {
-            const isChild = (g.ageCategory ?? (g.children > 0 ? 'child' : 'adult')) === 'child'
+            const isChild = guestAgeCategory(g) === 'child'
             return (
               <div key={g.id}
                 style={{

@@ -7,11 +7,17 @@ import { FileJson, TrendingUp, ArrowRight, AlertTriangle, CheckCircle, Sparkles 
 import { SmallLeaf, Frangipani, BaliBorder } from '../components/Botanicals'
 import { CurrencyToggle } from '../components/CurrencyToggle'
 import { useCurrencyContext } from '../context/CurrencyContext'
-import type { AppData, BudgetItem, Page } from '../types'
+import type { AppData, BudgetItem, Page, Payment } from '../types'
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 function fmt(n: number) {
   return '£' + n.toLocaleString('en-GB', { minimumFractionDigits: 0, maximumFractionDigits: 0 })
+}
+
+/** Mirror of Budget.tsx — always use payments[] if present, else fall back to legacy actual */
+function itemPaid(b: BudgetItem & { payments?: Payment[] }): number {
+  if (b.payments && b.payments.length > 0) return b.payments.reduce((s, p) => s + p.amount, 0)
+  return b.actual
 }
 function fmtPct(n: number) { return `${Math.round(n)}%` }
 
@@ -40,7 +46,7 @@ type Filter = 'all' | 'budget' | 'vendor'
 
 interface FullVendor {
   id: string; name: string; category: string
-  quote?: number; deposit?: number; paid?: number; syncToBudget?: boolean; status?: string
+  quote?: number; deposit?: number; paid?: number; status?: string
 }
 
 // ── sub-components ────────────────────────────────────────────────────────────
@@ -107,17 +113,20 @@ export function FinancialOverview({ data, onNavigate }: Props) {
   const quotedVendors = vendors.filter(v => v.status === 'quoted')
 
   // ── Vendor aggregates (booked only) ───────────────────────────────────────
-  const allVendorDeposits  = bookedVendors.reduce((s, v) => s + (v.deposit ?? v.paid ?? 0), 0)
+  const allVendorDeposits  = bookedVendors.reduce((s, v) => s + (v.deposit ?? 0), 0)
   const allVendorQuotes    = bookedVendors.reduce((s, v) => s + (v.quote ?? 0), 0)
-  const allVendorBalance   = bookedVendors.reduce((s, v) => s + Math.max(0, (v.quote ?? 0) - (v.deposit ?? v.paid ?? 0)), 0)
+  const allVendorBalance   = bookedVendors.reduce((s, v) => s + Math.max(0, (v.quote ?? 0) - (v.deposit ?? 0)), 0)
   const totalQuotedPipeline = quotedVendors.reduce((s, v) => s + (v.quote ?? 0), 0)
 
-  // ── Budget aggregates ──────────────────────────────────────────────────────
-  const nonVendorItems = budgetItems.filter(b => !b.vendorId)
-  const vendorBudgetItems = budgetItems.filter(b => b.vendorId)
+  // Only booked budget items count toward totals — quoted are pipeline only
+  const bookedBudgetItems = budgetItems.filter(b => (b.status ?? 'booked') === 'booked')
+  const nonVendorItems    = bookedBudgetItems.filter(b => !b.vendorId)
+  const vendorBudgetItems = bookedBudgetItems.filter(b => b.vendorId)
+  const quotedBudgetItems = budgetItems.filter(b => b.status === 'quoted')
+  const totalQuotedBudgetPipeline = quotedBudgetItems.reduce((s, b) => s + b.estimated, 0)
 
-  const totalBudget    = budgetItems.reduce((s, b) => s + b.estimated, 0)
-  const totalActual    = budgetItems.reduce((s, b) => s + b.actual, 0)
+  const totalBudget    = bookedBudgetItems.reduce((s, b) => s + b.estimated, 0)
+  const totalActual    = bookedBudgetItems.reduce((s, b) => s + itemPaid(b), 0)
   const totalRemaining = totalBudget - totalActual
   const pctSpent       = totalBudget > 0 ? (totalActual / totalBudget) * 100 : 0
   const overBudget     = totalActual > totalBudget && totalBudget > 0
@@ -132,10 +141,10 @@ export function FinancialOverview({ data, onNavigate }: Props) {
       map[cat] = (map[cat] ?? 0) + amount
     }
     if (filter !== 'vendor') {
-      nonVendorItems.forEach(b => addToMap(b.category, b.actual || b.estimated))
+      nonVendorItems.forEach(b => addToMap(b.category, itemPaid(b)))
     }
     if (filter !== 'budget') {
-      vendorBudgetItems.forEach(b => addToMap(b.category, b.actual || b.estimated))
+      vendorBudgetItems.forEach(b => addToMap(b.category, itemPaid(b)))
     }
     return map
   }, [budgetItems, bookedVendors, filter])
@@ -151,9 +160,9 @@ export function FinancialOverview({ data, onNavigate }: Props) {
   const allExpenses = useMemo(() => {
     const items: { label: string; category: string; amount: number; type: 'budget' | 'vendor'; id?: string }[] = []
     if (filter !== 'vendor') {
-      budgetItems.forEach(b => items.push({
+      bookedBudgetItems.forEach(b => items.push({
         label: b.description, category: b.category,
-        amount: b.actual || b.estimated, type: 'budget',
+        amount: itemPaid(b), type: 'budget',
       }))
     }
     if (filter !== 'budget') {
@@ -164,7 +173,7 @@ export function FinancialOverview({ data, onNavigate }: Props) {
 
   // ── Outstanding vendor balances (booked only) ─────────────────────────────
   const outstandingVendors = bookedVendors
-    .filter(v => Math.max(0, (v.quote ?? 0) - (v.deposit ?? v.paid ?? 0)) > 0)
+    .filter(v => Math.max(0, (v.quote ?? 0) - (v.deposit ?? 0)) > 0)
     .sort((a, b) => Math.max(0, (b.quote ?? 0) - (b.deposit ?? b.paid ?? 0)) - Math.max(0, (a.quote ?? 0) - (a.deposit ?? a.paid ?? 0)))
 
   // ── Insights ──────────────────────────────────────────────────────────────
@@ -231,7 +240,7 @@ export function FinancialOverview({ data, onNavigate }: Props) {
             Add items in the Budget page or enter vendor quotes and deposits to see your full financial picture here.
           </p>
           <div style={{ display: 'flex', gap: 12, justifyContent: 'center' }}>
-            <button onClick={() => onNavigate('budget')}
+            <button onClick={() => onNavigate('budget-payments')}
               style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '10px 20px', borderRadius: 10,
                 background: '#3B2A22', color: '#FFF8EE', border: 'none', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
               Go to Budget <ArrowRight size={14}/>
@@ -278,6 +287,22 @@ export function FinancialOverview({ data, onNavigate }: Props) {
                 marginLeft: 'auto', fontSize: 12, color: '#8B6914', background: 'none',
                 border: '1px solid rgba(200,164,93,0.5)', borderRadius: 6, padding: '3px 10px', cursor: 'pointer',
               }}>View vendors</button>
+            </div>
+          )}
+
+          {/* Quoted budget items pipeline notice */}
+          {totalQuotedBudgetPipeline > 0 && (
+            <div style={{
+              display: 'flex', alignItems: 'center', gap: 8, padding: '8px 16px',
+              borderRadius: 10, background: 'rgba(200,164,93,0.08)', border: '1px solid rgba(200,164,93,0.3)',
+              marginBottom: 14, fontSize: 13, color: '#8B6914',
+            }}>
+              📋 <strong style={{ marginRight: 4 }}>{quotedBudgetItems.length} quoted expense{quotedBudgetItems.length !== 1 ? 's' : ''}</strong>
+              ({d(totalQuotedBudgetPipeline)}) — not included until marked as <em style={{ marginLeft: 4, marginRight: 4 }}>Booked</em>
+              <button onClick={() => onNavigate('budget-payments')} style={{
+                marginLeft: 'auto', fontSize: 12, color: '#8B6914', background: 'none',
+                border: '1px solid rgba(200,164,93,0.5)', borderRadius: 6, padding: '3px 10px', cursor: 'pointer',
+              }}>View budget</button>
             </div>
           )}
 
@@ -331,8 +356,8 @@ export function FinancialOverview({ data, onNavigate }: Props) {
 
             {/* Bar chart */}
             <section>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
-                <SectionHead title="Spending by category"/>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
+                <SectionHead title="Amounts paid by category"/>
                 {/* Filter pills */}
                 <div style={{ display: 'flex', gap: 6 }}>
                   {([['all', 'All'], ['budget', 'Budget only'], ['vendor', 'Vendors only']] as const).map(([k, l]) => (
@@ -347,6 +372,9 @@ export function FinancialOverview({ data, onNavigate }: Props) {
                   ))}
                 </div>
               </div>
+              <p style={{ fontSize: 11, color: '#A89080', fontStyle: 'italic', marginBottom: 16 }}>
+                Actual payments made — booked expenses only, unpaid items excluded
+              </p>
 
               {chartData.length > 0 ? (
                 <div style={{ background: '#FAF3E6', border: '1.5px solid #E8D5A3', borderRadius: 16, padding: '20px 16px' }}>
@@ -375,7 +403,7 @@ export function FinancialOverview({ data, onNavigate }: Props) {
 
             {/* Donut chart */}
             <section>
-              <SectionHead title="Breakdown"/>
+              <SectionHead title="Share of total paid"/>
               <div style={{ background: '#FAF3E6', border: '1.5px solid #E8D5A3', borderRadius: 16, padding: '20px 16px' }}>
                 {chartData.length > 0 ? (
                   <>
@@ -415,12 +443,13 @@ export function FinancialOverview({ data, onNavigate }: Props) {
               {/* Budget vs Vendor split */}
               {(totalActual > 0 || allVendorDeposits > 0) && (
                 <div style={{ marginTop: 16, background: '#FAF3E6', border: '1.5px solid #E8D5A3', borderRadius: 16, padding: '16px 18px' }}>
-                  <p style={{ fontSize: 11, fontWeight: 700, color: '#7A6657', letterSpacing: '0.08em', marginBottom: 12 }}>SPLIT</p>
+                  <p style={{ fontSize: 11, fontWeight: 700, color: '#7A6657', letterSpacing: '0.08em', marginBottom: 2 }}>BUDGET ITEMS vs. VENDOR DEPOSITS</p>
+                  <p style={{ fontSize: 10, color: '#A89080', fontStyle: 'italic', marginBottom: 12 }}>Breakdown of what you've paid and where it went</p>
                   {[
-                    { label: 'Budget items', value: nonVendorItems.reduce((s, b) => s + b.actual, 0), color: '#C8A45D' },
-                    { label: 'Vendor payments', value: allVendorDeposits, color: '#7F9A78' },
+                    { label: 'Budget item payments', value: nonVendorItems.reduce((s, b) => s + itemPaid(b), 0), color: '#C8A45D' },
+                    { label: 'Vendor deposits paid', value: allVendorDeposits, color: '#7F9A78' },
                   ].map(r => {
-                    const total = nonVendorItems.reduce((s, b) => s + b.actual, 0) + allVendorDeposits
+                    const total = nonVendorItems.reduce((s, b) => s + itemPaid(b), 0) + allVendorDeposits
                     const pct = total > 0 ? (r.value / total) * 100 : 0
                     return (
                       <div key={r.label} style={{ marginBottom: 10 }}>
@@ -482,7 +511,7 @@ export function FinancialOverview({ data, onNavigate }: Props) {
               <SectionHead title="Outstanding vendor balances"/>
               <div style={{ background: '#FAF3E6', border: '1.5px solid rgba(196,122,82,0.35)', borderRadius: 16, overflow: 'hidden' }}>
                 {outstandingVendors.map((v, i) => {
-                  const dep = v.deposit ?? v.paid ?? 0
+                  const dep = v.deposit ?? 0
                   const bal = Math.max(0, (v.quote ?? 0) - dep)
                   const pct = (v.quote ?? 0) > 0 ? (dep / (v.quote ?? 1)) * 100 : 0
                   return (
@@ -527,7 +556,7 @@ export function FinancialOverview({ data, onNavigate }: Props) {
 
           {/* ── Quick nav ── */}
           <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
-            <button onClick={() => onNavigate('budget')}
+            <button onClick={() => onNavigate('budget-payments')}
               style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '9px 18px', borderRadius: 10,
                 border: '1.5px solid #E8D5A3', background: '#FAF3E6', color: '#3B2A22', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>
               Open Budget <ArrowRight size={13}/>

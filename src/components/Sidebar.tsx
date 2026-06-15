@@ -1,27 +1,26 @@
-import { LayoutDashboard, Users, PiggyBank, CheckSquare, Store, Image, Armchair, Settings as SettingsIcon, BedDouble, BarChart2 } from 'lucide-react'
+import { LayoutDashboard, Users, PiggyBank, Store, Armchair, BedDouble, CalendarDays, Settings as SettingsIcon } from 'lucide-react'
 import { Frangipani, TempleGate, PalmFrond, BaliBorder } from './Botanicals'
 import type { Page } from '../types'
 
-const NAV = [
-  { id: 'dashboard' as Page, label: 'Dashboard',  icon: LayoutDashboard },
-  { id: 'guests'    as Page, label: 'Guests',      icon: Users },
-  { id: 'budget'    as Page, label: 'Budget',      icon: PiggyBank },
-  { id: 'checklist' as Page, label: 'Checklist',   icon: CheckSquare },
-  { id: 'vendors'   as Page, label: 'Vendors',     icon: Store },
-  { id: 'moodboard' as Page, label: 'Mood Board',  icon: Image },
-  { id: 'seating'       as Page, label: 'Seating',       icon: Armchair },
-  { id: 'accommodation' as Page, label: 'Accommodation', icon: BedDouble },
-  { id: 'finances'      as Page, label: 'Finances',      icon: BarChart2 },
-  { id: 'settings'      as Page, label: 'Settings',      icon: SettingsIcon },
+const NAV: { id: Page; label: string; icon: React.ElementType; sub?: string }[] = [
+  { id: 'dashboard',       label: 'Dashboard',          icon: LayoutDashboard },
+  { id: 'guests',          label: 'Guests',              icon: Users },
+  { id: 'budget-payments', label: 'Budget & Payments',   icon: PiggyBank },
+  { id: 'vendors',         label: 'Vendors',             icon: Store },
+  { id: 'accommodation',   label: 'Accommodation',       icon: BedDouble },
+  { id: 'seating',         label: 'Seating',             icon: Armchair },
+  { id: 'planning',        label: 'Planning',            icon: CalendarDays, sub: 'Events · Itinerary · Checklist · Mood Board' },
+  { id: 'settings',        label: 'Settings',            icon: SettingsIcon },
 ]
 
 interface Props {
   current: Page
   onChange: (p: Page) => void
   collapsed: boolean
+  badges?: Partial<Record<Page, number>>  // page → badge count
 }
 
-export function Sidebar({ current, onChange, collapsed }: Props) {
+export function Sidebar({ current, onChange, collapsed, badges = {} }: Props) {
   const w = collapsed ? 64 : 224
 
   return (
@@ -120,55 +119,80 @@ export function Sidebar({ current, onChange, collapsed }: Props) {
       </div>
 
       {/* ── Navigation ── */}
-      <nav style={{ flex: 1, paddingTop: 12, position: 'relative', zIndex: 1, overflowY: 'auto' }}>
-        {NAV.map(({ id, label, icon: Icon }) => {
+      <nav style={{ flex: 1, paddingTop: 8, position: 'relative', zIndex: 1, overflowY: 'auto' }}>
+        {NAV.map(({ id, label, icon: Icon, sub }) => {
           const active = current === id
+          const badge  = badges[id]
+          const isSettings = id === 'settings'
           return (
-            <button
-              key={id}
-              onClick={() => onChange(id)}
-              style={{
-                width: '100%',
-                display: 'flex',
-                alignItems: 'center',
-                gap: 12,
-                padding: collapsed ? '13px 0' : '12px 20px',
-                justifyContent: collapsed ? 'center' : 'flex-start',
-                background: active
-                  ? 'linear-gradient(90deg, rgba(200,164,93,0.22) 0%, rgba(200,164,93,0.06) 100%)'
-                  : 'transparent',
-                borderLeft: active ? '3px solid #C8A45D' : '3px solid transparent',
-                borderTop: 'none', borderRight: 'none', borderBottom: 'none',
-                color: active ? '#E8D5A3' : 'rgba(255,248,238,0.45)',
-                cursor: 'pointer',
-                transition: 'all 0.2s ease',
-                position: 'relative',
-                animation: active ? 'glowActive 3s ease-in-out infinite' : 'none',
-              }}
-              onMouseEnter={e => {
-                if (!active) {
-                  ;(e.currentTarget as HTMLElement).style.background = 'rgba(200,164,93,0.08)'
-                  ;(e.currentTarget as HTMLElement).style.color = 'rgba(255,248,238,0.75)'
-                }
-              }}
-              onMouseLeave={e => {
-                if (!active) {
-                  ;(e.currentTarget as HTMLElement).style.background = 'transparent'
-                  ;(e.currentTarget as HTMLElement).style.color = 'rgba(255,248,238,0.45)'
-                }
-              }}
-            >
-              {/* Active frangipani indicator */}
-              {active && !collapsed && (
-                <div style={{ position: 'absolute', right: 12, top: '50%', transform: 'translateY(-50%)', animation: 'breathe 2s ease-in-out infinite' }}>
-                  <Frangipani size={18} opacity={0.6} />
+            <div key={id}>
+              {/* Subtle divider above Settings */}
+              {isSettings && (
+                <div style={{ height: 1, background: 'rgba(200,164,93,0.12)', margin: '6px 16px 6px' }}/>
+              )}
+              <button
+                onClick={() => onChange(id)}
+                style={{
+                  width: '100%',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 12,
+                  padding: collapsed ? '13px 0' : sub ? '10px 20px 8px' : '11px 20px',
+                  justifyContent: collapsed ? 'center' : 'flex-start',
+                  background: active
+                    ? 'linear-gradient(90deg, rgba(200,164,93,0.22) 0%, rgba(200,164,93,0.06) 100%)'
+                    : 'transparent',
+                  borderLeft: active ? '3px solid #C8A45D' : '3px solid transparent',
+                  borderTop: 'none', borderRight: 'none', borderBottom: 'none',
+                  color: active ? '#E8D5A3' : 'rgba(255,248,238,0.45)',
+                  cursor: 'pointer',
+                  transition: 'all 0.2s ease',
+                  position: 'relative',
+                  animation: active ? 'glowActive 3s ease-in-out infinite' : 'none',
+                  textAlign: 'left',
+                }}
+                onMouseEnter={e => {
+                  if (!active) {
+                    ;(e.currentTarget as HTMLElement).style.background = 'rgba(200,164,93,0.08)'
+                    ;(e.currentTarget as HTMLElement).style.color = 'rgba(255,248,238,0.75)'
+                  }
+                }}
+                onMouseLeave={e => {
+                  if (!active) {
+                    ;(e.currentTarget as HTMLElement).style.background = 'transparent'
+                    ;(e.currentTarget as HTMLElement).style.color = 'rgba(255,248,238,0.45)'
+                  }
+                }}
+              >
+                {active && !collapsed && (
+                  <div style={{ position: 'absolute', right: 12, top: '50%', transform: 'translateY(-50%)', animation: 'breathe 2s ease-in-out infinite' }}>
+                    <Frangipani size={18} opacity={0.6}/>
+                  </div>
+                )}
+                <div style={{ position: 'relative', flexShrink: 0 }}>
+                  <Icon size={17} strokeWidth={1.5}/>
+                  {badge !== undefined && badge > 0 && (
+                    <span style={{
+                      position: 'absolute', top: -5, right: -6,
+                      minWidth: 16, height: 16, borderRadius: 8, padding: '0 4px',
+                      background: '#C47A52', color: '#fff',
+                      fontSize: 9, fontWeight: 700, lineHeight: '16px',
+                      textAlign: 'center', display: 'block', whiteSpace: 'nowrap',
+                    }}>{badge > 99 ? '99+' : badge}</span>
+                  )}
                 </div>
-              )}
-              <Icon size={17} strokeWidth={1.5} style={{ flexShrink: 0 }} />
-              {!collapsed && (
-                <span style={{ fontSize: 13, fontWeight: 500, letterSpacing: '0.04em' }}>{label}</span>
-              )}
-            </button>
+                {!collapsed && (
+                  <div style={{ minWidth: 0 }}>
+                    <span style={{ fontSize: 13, fontWeight: 500, letterSpacing: '0.04em', display: 'block' }}>{label}</span>
+                    {sub && (
+                      <span style={{ fontSize: 9, color: 'rgba(255,248,238,0.28)', letterSpacing: '0.04em', display: 'block', marginTop: 1 }}>
+                        {sub}
+                      </span>
+                    )}
+                  </div>
+                )}
+              </button>
+            </div>
           )
         })}
       </nav>

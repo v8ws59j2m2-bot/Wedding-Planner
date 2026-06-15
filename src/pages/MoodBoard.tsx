@@ -4,6 +4,7 @@ import {
   Palette, Image as ImageIcon, Grid3X3, Filter,
 } from 'lucide-react'
 import { SmallLeaf, Frangipani, BaliBorder } from '../components/Botanicals'
+import { uid } from '../lib/helpers'
 import type { AppData } from '../types'
 
 // ── types ─────────────────────────────────────────────────────────────────────
@@ -27,8 +28,6 @@ interface MoodBoardData {
 }
 
 // ── helpers ───────────────────────────────────────────────────────────────────
-function uid() { return Math.random().toString(36).slice(2, 10) }
-
 function exportJSON(data: AppData) {
   const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' })
   const url = URL.createObjectURL(blob)

@@ -6,7 +6,7 @@
 // When migrating to Supabase, the service layer changes but this hook stays.
 // ─────────────────────────────────────────────────────────────────────────────
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import type { AppData } from '../types'
 import {
   loadAppData, saveAppData,
@@ -33,7 +33,7 @@ export function useStorage() {
     exportAllData(data, details)
   }
 
-  const importData = (file: File) => {
+  const importData = useCallback((file: File) => {
     const reader = new FileReader()
     reader.onload = (e) => {
       const text = e.target?.result as string
@@ -49,10 +49,12 @@ export function useStorage() {
         ...(result.data.checklist !== undefined && { checklist:  result.data.checklist }),
         ...(result.data.vendors   !== undefined && { vendors:    result.data.vendors }),
         ...(result.data.moodImages!== undefined && { moodImages: result.data.moodImages }),
+        ...(result.data.events      !== undefined && { events:      result.data.events }),
+        ...(result.data.travelInfo  !== undefined && { travelInfo:  result.data.travelInfo }),
       }))
     }
     reader.readAsText(file)
-  }
+  }, [])
 
   return { data, setData, exportData, importData }
 }

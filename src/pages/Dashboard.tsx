@@ -2,6 +2,8 @@ import { useState, useEffect } from 'react'
 import { Users, PiggyBank, CheckSquare, Store, ArrowRight, Calendar, Sparkles } from 'lucide-react'
 import { LilySprig, SmallLeaf, Frangipani, TempleGate, PalmFrond, RiceFields, BaliBorder, BatikCorner } from '../components/Botanicals'
 import { useIsMobile } from '../hooks/useIsMobile'
+import { guestAgeCategory, countOverduePayments } from '../lib/helpers'
+import { loadWeddingDetails } from '../services/dataService'
 import type { AppData, Page } from '../types'
 
 interface Props {
@@ -9,12 +11,11 @@ interface Props {
   onNavigate: (p: Page) => void
 }
 
-const WEDDING_DATE = new Date('2028-04-05T00:00:00')
-
 // ── Countdown hook ────────────────────────────────────────────────────────────
 function useCountdown() {
   const calc = () => {
-    const diff = Math.max(0, WEDDING_DATE.getTime() - Date.now())
+    const weddingDate = new Date(loadWeddingDetails().date + 'T00:00:00')
+    const diff = Math.max(0, weddingDate.getTime() - Date.now())
     return {
       days:    Math.floor(diff / 86400000),
       hours:   Math.floor((diff % 86400000) / 3600000),
@@ -207,18 +208,23 @@ export function Dashboard({ data, onNavigate }: Props) {
   // Stats — all guests are confirmed in the new model
   const allGuests      = data.guests
   const totalGuests    = allGuests.length
-  const totalAdults    = allGuests.filter(g => (g.ageCategory ?? (g.children > 0 ? 'child' : 'adult')) === 'adult').length
-  const totalChildren  = allGuests.filter(g => (g.ageCategory ?? (g.children > 0 ? 'child' : 'adult')) === 'child').length
+  const totalAdults   = allGuests.filter(g => guestAgeCategory(g) === 'adult').length
+  const totalChildren = allGuests.filter(g => guestAgeCategory(g) === 'child').length
 
-  const totalBudget    = data.budget.reduce((s, b) => s + b.estimated, 0)
-  const totalSpent     = data.budget.reduce((s, b) => s + b.actual, 0)
-  const budgetPct      = totalBudget > 0 ? Math.round((totalSpent / totalBudget) * 100) : 0
+  // Budget totals — booked items only, using payments[] if present
+  const bookedBudget = data.budget.filter(b => (b.status ?? 'booked') === 'booked')
+  const totalBudget  = bookedBudget.reduce((s, b) => s + b.estimated, 0)
+  const totalSpent   = bookedBudget.reduce((s, b) => {
+    if (b.payments && b.payments.length > 0) return s + b.payments.reduce((p, x) => p + x.amount, 0)
+    return s + b.actual
+  }, 0)
+  const budgetPct    = totalBudget > 0 ? Math.round((totalSpent / totalBudget) * 100) : 0
 
   const completedTasks = data.checklist.filter(c => c.completed).length
   const totalTasks     = data.checklist.length
   const taskPct        = totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : 0
 
-  const bookedVendors  = data.vendors.filter(v => v.booked).length
+  const bookedVendors  = data.vendors.filter(v => v.status === 'booked').length
 
   // Attention items
   const overdue = data.checklist.filter(c =>
@@ -230,6 +236,9 @@ export function Dashboard({ data, onNavigate }: Props) {
     const now = new Date()
     return d >= now && d <= new Date(now.getTime() + 7 * 86400000)
   })
+
+  // Check overdue payment stages / final balance deadlines
+  const overduePayments = countOverduePayments(data.budget)
 
   // Check accommodation allocations
   const accomData = (() => {
@@ -259,14 +268,14 @@ export function Dashboard({ data, onNavigate }: Props) {
       title: `${overdue.length} overdue task${overdue.length > 1 ? 's' : ''}`,
       description: overdue[0]?.title + (overdue.length > 1 ? ` and ${overdue.length - 1} more.` : '.'),
       action: 'View checklist',
-      page: 'checklist' as Page,
+      page: 'planning' as Page,
     },
     dueSoon.length > 0 && {
       icon: Calendar, color: '#C8A45D',
       title: `${dueSoon.length} task${dueSoon.length > 1 ? 's' : ''} due this week`,
       description: dueSoon[0]?.title + (dueSoon.length > 1 ? ` and ${dueSoon.length - 1} more.` : '.'),
       action: 'View checklist',
-      page: 'checklist' as Page,
+      page: 'planning' as Page,
     },
     data.vendors.length === 0 && {
       icon: Store, color: '#C8A45D',
@@ -275,12 +284,19 @@ export function Dashboard({ data, onNavigate }: Props) {
       action: 'Add vendors',
       page: 'vendors' as Page,
     },
+    overduePayments > 0 && {
+      icon: PiggyBank, color: '#C47A52',
+      title: `${overduePayments} payment${overduePayments > 1 ? 's' : ''} overdue`,
+      description: `${overduePayments > 1 ? `${overduePayments} scheduled payments have` : 'A scheduled payment has'} passed their due date. Review and settle as soon as possible.`,
+      action: 'View payments',
+      page: 'budget-payments' as Page,
+    },
     totalBudget === 0 && {
       icon: PiggyBank, color: '#7F9A78',
       title: 'Budget not set up',
       description: 'Add your estimated costs to start tracking spend.',
       action: 'Set budget',
-      page: 'budget' as Page,
+      page: 'budget-payments' as Page,
     },
   ].filter(Boolean).slice(0, 4) as {
     icon: React.ElementType; color: string; title: string
@@ -413,13 +429,13 @@ export function Dashboard({ data, onNavigate }: Props) {
           icon={PiggyBank} label="Budget used" color="#C8A45D"
           value={totalBudget > 0 ? `${budgetPct}%` : '—'}
           sub={totalBudget > 0 ? `£${totalSpent.toLocaleString()} of £${totalBudget.toLocaleString()}` : 'Budget not set'}
-          onClick={() => onNavigate('budget')}
+          onClick={() => onNavigate('budget-payments')}
         />
         <StatCard
           icon={CheckSquare} label="Tasks complete" color="#C47A52"
           value={totalTasks > 0 ? `${taskPct}%` : '—'}
           sub={totalTasks > 0 ? `${completedTasks} of ${totalTasks} done` : 'No tasks yet'}
-          onClick={() => onNavigate('checklist')}
+          onClick={() => onNavigate('planning')}
         />
         <StatCard
           icon={Store} label="Vendors booked" color="#7F9A78"
@@ -469,8 +485,8 @@ export function Dashboard({ data, onNavigate }: Props) {
       <SectionLabel>Jump to</SectionLabel>
       <div style={{ display: 'flex', gap: 16 }}>
         <QuickLink icon={Users}       label="Guests"    color="#7F9A78" onClick={() => onNavigate('guests')} />
-        <QuickLink icon={PiggyBank}   label="Budget"    color="#C8A45D" onClick={() => onNavigate('budget')} />
-        <QuickLink icon={CheckSquare} label="Checklist" color="#C47A52" onClick={() => onNavigate('checklist')} />
+        <QuickLink icon={PiggyBank}   label="Budget"    color="#C8A45D" onClick={() => onNavigate('budget-payments')} />
+        <QuickLink icon={CheckSquare} label="Checklist" color="#C47A52" onClick={() => onNavigate('planning')} />
         <QuickLink icon={Store}       label="Vendors"   color="#7F9A78" onClick={() => onNavigate('vendors')} />
       </div>
 
