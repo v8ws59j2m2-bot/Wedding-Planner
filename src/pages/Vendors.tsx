@@ -1,17 +1,14 @@
 import { useState, useMemo, useRef } from 'react'
 import {
-  Plus, Edit2, Trash2, X, Search, FileJson,
-  Phone, Mail, Globe, ChevronDown, ExternalLink,
+  Plus, Trash2, X, Search, FileJson,
+  ChevronDown,
   Upload, FileText, Image as ImageIcon, Download, Eye,
-  AlertTriangle, Paperclip,
+  AlertTriangle, Paperclip, CheckCircle,
 } from 'lucide-react'
 import { SmallLeaf, Frangipani, BaliBorder } from '../components/Botanicals'
 import { CurrencyToggle } from '../components/CurrencyToggle'
-import { useCurrencyContext } from '../context/CurrencyContext'
-import { CurrencyAmountInput, localToGbp } from '../components/CurrencyAmountInput'
-import { CURRENCY_LABELS, type Currency } from '../hooks/useCurrency'
 import type { Vendor, AppData } from '../types'
-import { uid, fmt } from '../lib/helpers'
+import { uid } from '../lib/helpers'
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 function exportJSON(data: AppData) {
@@ -72,33 +69,12 @@ const CAT_ICONS: Record<string, string> = {
   'Accommodation': '🏨', 'Miscellaneous': '📦',
 }
 const EMPTY: Omit<FullVendor, 'id'> = {
-  name: '', category: CATEGORIES[0],
+  name: '', category: CATEGORIES[0], status: 'quoted',
   contact: '', phone: '', email: '',
   website: '', notes: '',
 }
 const MAX_FILE_BYTES = 5 * 1024 * 1024  // 5 MB
 const ACCEPTED = '.pdf,.jpg,.jpeg,.png,.webp'
-
-// Map vendor categories → budget categories
-const VENDOR_TO_BUDGET_CAT: Record<string, string> = {
-  'Venue':           'Venue',
-  'Photography':     'Photography',
-  'Videography':     'Videography',
-  'Catering':        'Catering',
-  'Florals':         'Flowers & Décor',
-  'Hair & Beauty':   'Hair & Beauty',
-  'Music & DJ':      'Music & Entertainment',
-  'Officiant':       'Miscellaneous',
-  'Transport':       'Transport',
-  'Cake & Desserts': 'Catering',
-  'Stationery':      'Stationery',
-  'Lighting & AV':   'Miscellaneous',
-  'Accommodation':   'Miscellaneous',
-  'Miscellaneous':   'Miscellaneous',
-}
-function vendorBudgetCat(vendorCat: string) {
-  return VENDOR_TO_BUDGET_CAT[vendorCat] ?? 'Miscellaneous'
-}
 
 // ── Contract status chip ──────────────────────────────────────────────────────
 function ContractChip({ contract }: { contract?: ContractFile }) {

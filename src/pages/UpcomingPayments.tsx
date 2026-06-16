@@ -3,8 +3,8 @@ import { AlertTriangle, Clock, Calendar, Flag, ArrowRight, CheckCircle } from 'l
 import { SmallLeaf, Frangipani, BaliBorder } from '../components/Botanicals'
 import { CurrencyToggle } from '../components/CurrencyToggle'
 import { useCurrencyContext } from '../context/CurrencyContext'
-import { fmt, paymentStageAmount } from '../lib/helpers'
-import type { AppData, BudgetItem, Page } from '../types'
+import { paymentStageAmount } from '../lib/helpers'
+import type { AppData, Page } from '../types'
 
 // ── Types for flattened payment items ────────────────────────────────────────
 interface PaymentItem {

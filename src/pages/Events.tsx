@@ -1,7 +1,7 @@
 import { useState, useMemo } from 'react'
 import {
   Plus, Edit2, Trash2, X, ChevronDown, Users, CheckCircle,
-  Clock, MapPin, AlertTriangle, CalendarDays, Banknote, FileText, Search,
+  Clock, MapPin, AlertTriangle, CalendarDays, Banknote, Search,
 } from 'lucide-react'
 import { SmallLeaf, Frangipani, BaliBorder } from '../components/Botanicals'
 import { uid, fmt, guestDisplayName as guestName } from '../lib/helpers'
@@ -44,7 +44,7 @@ const LBL: React.CSSProperties = {
 }
 
 // ── Event modal ───────────────────────────────────────────────────────────────
-function EventModal({ initial, guests, onSave, onClose }: {
+function EventModal({ initial, guests: _guests, onSave, onClose }: {
   initial?: Event; guests: Guest[]
   onSave: (e: Event) => void; onClose: () => void
 }) {
@@ -504,7 +504,7 @@ function SignupModal({ event, guests, onSave, onClose }: {
 }
 
 // ── Event card ────────────────────────────────────────────────────────────────
-function EventCard({ event, guests, onEdit, onDelete, onSignups }: {
+function EventCard({ event, guests: _guests, onEdit, onDelete, onSignups }: {
   event: Event; guests: Guest[]
   onEdit: (e: Event) => void; onDelete: (id: string) => void; onSignups: (e: Event) => void
 }) {
@@ -513,7 +513,6 @@ function EventCard({ event, guests, onEdit, onDelete, onSignups }: {
   const signedUpCount = signups.length
   const cost          = event.costPerPerson ?? 0
   const paidCount     = signups.filter(s => s.paid).length
-  const totalCollected = paidCount * cost
   const outstanding   = (signedUpCount - paidCount) * cost
 
   return (

@@ -5,7 +5,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { loadAppData, saveAppData, loadWeddingDetails, saveWeddingDetails } from '../lib/supabaseData'
+import { loadAppData, saveAppData, loadWeddingDetails } from '../lib/supabaseData'
 import { exportAllData, parseImport } from '../services/dataService'
 import type { AppData } from '../types'
 

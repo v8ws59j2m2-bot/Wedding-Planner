@@ -1,7 +1,7 @@
 import { useState, useMemo } from 'react'
 import {
-  Plane, PlaneLanding, PlaneTakeoff, X, Edit2, Check,
-  AlertTriangle, ChevronDown, Search, Car,
+  Plane, PlaneLanding, PlaneTakeoff, X, Edit2,
+  AlertTriangle, Search, Car,
 } from 'lucide-react'
 import { BaliBorder } from '../components/Botanicals'
 import { TourButton } from '../components/GuidedTour'
@@ -9,7 +9,6 @@ import { guestDisplayName } from '../lib/helpers'
 import type { AppData, Guest, GuestTravel, FlightDetails } from '../types'
 
 // ── helpers ───────────────────────────────────────────────────────────────────
-function uid() { return Math.random().toString(36).slice(2, 10) }
 
 function fmtDate(iso?: string) {
   if (!iso) return ''

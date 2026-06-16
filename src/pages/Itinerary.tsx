@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react'
-import { Printer, FileText, Eye, EyeOff, CalendarDays, Clock, MapPin, ChevronDown } from 'lucide-react'
+import { Printer, FileText, Eye, EyeOff } from 'lucide-react'
 import { SmallLeaf, Frangipani, BaliBorder } from '../components/Botanicals'
 import type { AppData, Event, WeddingDetails } from '../types'
 import { loadWeddingDetails } from '../services/dataService'
