@@ -1,17 +1,18 @@
 import { Component, type ReactNode, type ErrorInfo } from 'react'
 
 interface Props { children: ReactNode }
-interface State { error: Error | null }
+interface State { error: Error | null; stack: string }
 
 export class ErrorBoundary extends Component<Props, State> {
-  state: State = { error: null }
+  state: State = { error: null, stack: '' }
 
   static getDerivedStateFromError(error: Error): State {
-    return { error }
+    return { error, stack: '' }
   }
 
   componentDidCatch(error: Error, info: ErrorInfo) {
     console.error('[ErrorBoundary]', error, info.componentStack)
+    this.setState({ stack: info.componentStack ?? '' })
   }
 
   render() {
@@ -55,8 +56,10 @@ export class ErrorBoundary extends Component<Props, State> {
               fontSize: 11, color: '#C47A52', background: 'rgba(196,122,82,0.08)',
               border: '1px solid rgba(196,122,82,0.2)', borderRadius: 8, padding: 12,
               overflowX: 'auto', whiteSpace: 'pre-wrap', wordBreak: 'break-word',
+              maxHeight: 200, overflowY: 'auto',
             }}>
               {error.message}
+              {this.state.stack ? '\n\nComponent stack:\n' + this.state.stack : ''}
             </pre>
           </details>
 
