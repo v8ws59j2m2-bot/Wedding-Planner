@@ -96,6 +96,24 @@ export async function saveSeating(seatingData: { tables: any[] }): Promise<void>
   if (error) throw error
 }
 
+// ── Mood Board ────────────────────────────────────────────────────────────────
+export async function loadMoodBoard(): Promise<{ images: any[]; swatches: any[] }> {
+  const userId = await getUserId()
+  if (!userId) return { images: [], swatches: [] }
+  const { data, error } = await supabase
+    .from('moodboard_data').select('images,swatches').eq('user_id', userId).single()
+  if (error || !data) return { images: [], swatches: [] }
+  return { images: data.images ?? [], swatches: data.swatches ?? [] }
+}
+
+export async function saveMoodBoard(board: { images: any[]; swatches: any[] }): Promise<void> {
+  const userId = await getUserId()
+  if (!userId) return
+  const { error } = await supabase.from('moodboard_data')
+    .upsert({ user_id: userId, images: board.images, swatches: board.swatches }, { onConflict: 'user_id' })
+  if (error) throw error
+}
+
 // ── Accommodation ─────────────────────────────────────────────────────────────
 export async function loadAccommodation(): Promise<{ rooms: any[] }> {
   const userId = await getUserId()

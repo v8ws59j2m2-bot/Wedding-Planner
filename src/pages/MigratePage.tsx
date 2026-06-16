@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { saveAppData, saveWeddingDetails, saveSeating, saveAccommodation } from '../lib/supabaseData'
+import { saveAppData, saveWeddingDetails, saveSeating, saveAccommodation, saveMoodBoard } from '../lib/supabaseData'
 
 interface MigrateResult {
   key: string
@@ -80,6 +80,20 @@ export function MigratePage({ onDone }: { onDone: () => void }) {
       }
     } catch (e: any) {
       out.push({ key: 'Accommodation', status: 'error', detail: e.message })
+    }
+
+    // 5. Mood Board
+    try {
+      const raw = localStorage.getItem('jb-moodboard')
+      if (raw) {
+        const board = JSON.parse(raw)
+        await saveMoodBoard({ images: board.images ?? [], swatches: board.swatches ?? [] })
+        out.push({ key: 'Mood Board', status: 'ok', detail: `${board.images?.length ?? 0} images, ${board.swatches?.length ?? 0} swatches` })
+      } else {
+        out.push({ key: 'Mood Board', status: 'skipped', detail: 'Nothing in localStorage' })
+      }
+    } catch (e: any) {
+      out.push({ key: 'Mood Board', status: 'error', detail: e.message })
     }
 
     setResults(out)

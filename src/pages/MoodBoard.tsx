@@ -1,10 +1,11 @@
-import { useState, useMemo, useRef } from 'react'
+import { useState, useMemo, useRef, useEffect } from 'react'
 import {
   Plus, X, Edit2, Trash2, Search, FileJson, Upload,
   Palette, Image as ImageIcon, Grid3X3, Filter,
 } from 'lucide-react'
 import { SmallLeaf, Frangipani, BaliBorder } from '../components/Botanicals'
 import { uid } from '../lib/helpers'
+import { loadMoodBoard, saveMoodBoard } from '../lib/supabaseData'
 import type { AppData } from '../types'
 
 // ── types ─────────────────────────────────────────────────────────────────────
@@ -333,12 +334,29 @@ const STORAGE_KEY = 'jb-moodboard'
 
 function useMoodBoard(): [MoodBoardData, (d: MoodBoardData) => void] {
   const [board, setBoard] = useState<MoodBoardData>(() => {
+    // Fast initial value from localStorage while Supabase loads
     try {
       const raw = localStorage.getItem(STORAGE_KEY)
       return raw ? JSON.parse(raw) : { images: [], swatches: STARTER_SWATCHES }
     } catch { return { images: [], swatches: STARTER_SWATCHES } }
   })
-  const save = (d: MoodBoardData) => { setBoard(d); localStorage.setItem(STORAGE_KEY, JSON.stringify(d)) }
+
+  useEffect(() => {
+    loadMoodBoard().then(d => {
+      if (d.images.length > 0 || d.swatches.length > 0) {
+        setBoard({ images: d.images, swatches: d.swatches.length > 0 ? d.swatches : STARTER_SWATCHES })
+      }
+    }).catch(() => { /* keep localStorage value */ })
+  }, [])
+
+  const save = (d: MoodBoardData) => {
+    setBoard(d)
+    saveMoodBoard(d).catch(() => {
+      try { localStorage.setItem(STORAGE_KEY, JSON.stringify(d)) } catch(e) {
+        if (e instanceof DOMException) window.dispatchEvent(new CustomEvent('storage-quota-exceeded'))
+      }
+    })
+  }
   return [board, save]
 }
 
