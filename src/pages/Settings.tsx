@@ -45,7 +45,7 @@ const DEFAULT_DETAILS: WeddingDetails = {
   theme: 'Romantic Balinese Minimalist',
 }
 
-export function useWeddingDetails(): [WeddingDetails, (d: WeddingDetails) => void] {
+function useSettingsWeddingDetails(): [WeddingDetails, (d: WeddingDetails) => void] {
   const [details, setDetails] = useState<WeddingDetails>(DEFAULT_DETAILS)
   useEffect(() => {
     loadWDSupabase().then(d => setDetails(d)).catch(() => {
@@ -306,7 +306,7 @@ interface Props {
 }
 
 export function Settings({ data, setData }: Props) {
-  const [details, saveDetails] = useWeddingDetails()
+  const [details, saveDetails] = useSettingsWeddingDetails()
   const [form, setForm] = useState<WeddingDetails>({ ...details })
   const [saved, setSaved] = useState(false)
   const [importFile, setImportFile] = useState<File | null>(null)

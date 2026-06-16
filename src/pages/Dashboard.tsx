@@ -26,9 +26,10 @@ function useCountdown() {
   }
   const [t, setT] = useState(calc)
   useEffect(() => {
+    setT(calc()) // recalculate immediately when date changes
     const id = setInterval(() => setT(calc()), 1000)
     return () => clearInterval(id)
-  }, [])
+  }, [details.date]) // eslint-disable-line react-hooks/exhaustive-deps
   return t
 }
 
