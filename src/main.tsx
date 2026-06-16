@@ -1,4 +1,4 @@
-import { StrictMode, useState, useEffect } from 'react'
+import { StrictMode, useState, useEffect, useRef } from 'react'
 import { createRoot } from 'react-dom/client'
 import './index.css'
 import App from './App.tsx'
@@ -12,27 +12,38 @@ import type { Session } from '@supabase/supabase-js'
 const MIGRATED_KEY = 'jb-supabase-migrated'
 
 function Root() {
-  const [session,  setSession]  = useState<Session | null>(null)
-  const [checking, setChecking] = useState(true)
+  const [session,        setSession]        = useState<Session | null>(null)
+  const [checking,       setChecking]       = useState(true)
   const [needsMigration, setNeedsMigration] = useState(false)
+  const mountedRef = useRef(false)
 
   useEffect(() => {
-    // Get initial session
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setSession(session)
-      // Check if this is a new login with existing localStorage data that hasn't been migrated
-      if (session && !localStorage.getItem(MIGRATED_KEY)) {
-        const hasLocalData = !!localStorage.getItem('jamie-beth-wedding-planner')
-        setNeedsMigration(hasLocalData)
+    mountedRef.current = true
+
+    // Subscribe to auth changes first
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, newSession) => {
+      if (mountedRef.current) {
+        setSession(newSession)
+        setChecking(false)
       }
-      setChecking(false)
     })
 
-    // Listen for auth state changes
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      setSession(session)
+    // Then get the current session — onAuthStateChange will fire with the result
+    supabase.auth.getSession().then(({ data: { session: s } }) => {
+      if (mountedRef.current) {
+        setSession(s)
+        if (s && !localStorage.getItem(MIGRATED_KEY)) {
+          const hasLocalData = !!localStorage.getItem('jamie-beth-wedding-planner')
+          setNeedsMigration(hasLocalData)
+        }
+        setChecking(false)
+      }
     })
-    return () => subscription.unsubscribe()
+
+    return () => {
+      mountedRef.current = false
+      subscription.unsubscribe()
+    }
   }, [])
 
   if (checking) {
