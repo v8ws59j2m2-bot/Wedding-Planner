@@ -124,13 +124,19 @@ function ContractSection({ contract, onChange }: {
 
   const openContract = () => {
     if (!contract) return
-    const win = window.open()
-    if (win) {
-      if (isPdf) {
-        win.document.write(`<iframe src="${contract.data}" style="width:100%;height:100vh;border:none;"/>`)
-      } else {
-        win.document.write(`<img src="${contract.data}" style="max-width:100%;"/>`)
-      }
+    // Use blob URL instead of document.write — safer, avoids XSS vector
+    try {
+      const [header, b64] = contract.data.split(',')
+      const mime = header.match(/:(.*?);/)?.[1] ?? contract.mimeType
+      const bytes = atob(b64)
+      const arr = new Uint8Array(bytes.length)
+      for (let i = 0; i < bytes.length; i++) arr[i] = bytes.charCodeAt(i)
+      const blob = new Blob([arr], { type: mime })
+      const url = URL.createObjectURL(blob)
+      window.open(url, '_blank', 'noopener,noreferrer')
+      setTimeout(() => URL.revokeObjectURL(url), 10000)
+    } catch {
+      window.open(contract.data, '_blank', 'noopener,noreferrer')
     }
   }
 
