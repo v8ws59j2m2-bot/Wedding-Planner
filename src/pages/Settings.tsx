@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from 'react'
+import { loadWeddingDetails as loadWDSupabase, saveWeddingDetails as saveWDSupabase } from '../lib/supabaseData'
 import {
   Download, Upload, Trash2, Save, AlertTriangle,
   CheckCircle, RefreshCw, Heart, Shield, FileSpreadsheet,
@@ -47,17 +48,13 @@ const DEFAULT_DETAILS: WeddingDetails = {
 export function useWeddingDetails(): [WeddingDetails, (d: WeddingDetails) => void] {
   const [details, setDetails] = useState<WeddingDetails>(DEFAULT_DETAILS)
   useEffect(() => {
-    import('../lib/supabaseData').then(({ loadWeddingDetails: load }) => {
-      load().then(d => setDetails(d)).catch(() => {
-        try { const raw = localStorage.getItem(DETAILS_KEY); if (raw) setDetails({ ...DEFAULT_DETAILS, ...JSON.parse(raw) }) } catch {}
-      })
+    loadWDSupabase().then(d => setDetails(d)).catch(() => {
+      try { const raw = localStorage.getItem(DETAILS_KEY); if (raw) setDetails({ ...DEFAULT_DETAILS, ...JSON.parse(raw) }) } catch {}
     })
   }, [])
   const save = (d: WeddingDetails) => {
     setDetails(d)
-    import('../lib/supabaseData').then(({ saveWeddingDetails: saveFn }) => saveFn(d)).catch(() => {
-      localStorage.setItem(DETAILS_KEY, JSON.stringify(d))
-    })
+    saveWDSupabase(d).catch(() => { localStorage.setItem(DETAILS_KEY, JSON.stringify(d)) })
   }
   return [details, save]
 }

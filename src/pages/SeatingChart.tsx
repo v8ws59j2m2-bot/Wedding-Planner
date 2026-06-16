@@ -13,6 +13,7 @@ import { SmallLeaf, Frangipani, BaliBorder } from '../components/Botanicals'
 import { TourButton } from '../components/GuidedTour'
 import { Tip } from '../components/Tooltip'
 import { uid } from '../lib/helpers'
+import { loadSeating, saveSeating } from '../lib/supabaseData'
 import type { AppData, Guest } from '../types'
 
 // ── types ─────────────────────────────────────────────────────────────────────
@@ -50,15 +51,13 @@ function useSeating(): [SeatingData, (d: SeatingData) => void] {
   const [state, setState] = useState<SeatingData>({ tables: [] })
   // Load from Supabase on mount, with localStorage fallback
   useEffect(() => {
-    import('../lib/supabaseData').then(({ loadSeating }) => {
-      loadSeating().then(d => setState(d as SeatingData)).catch(() => {
-        try { const raw = localStorage.getItem(STORAGE_KEY); if (raw) setState(JSON.parse(raw)) } catch {}
-      })
+    loadSeating().then(d => setState(d as SeatingData)).catch(() => {
+      try { const raw = localStorage.getItem(STORAGE_KEY); if (raw) setState(JSON.parse(raw)) } catch {}
     })
   }, [])
   const save = (d: SeatingData) => {
     setState(d)
-    import('../lib/supabaseData').then(({ saveSeating }) => saveSeating(d)).catch(() => {
+    saveSeating(d).catch(() => {
       try { localStorage.setItem(STORAGE_KEY, JSON.stringify(d)) } catch(e) {
         if (e instanceof DOMException) window.dispatchEvent(new CustomEvent('storage-quota-exceeded'))
       }

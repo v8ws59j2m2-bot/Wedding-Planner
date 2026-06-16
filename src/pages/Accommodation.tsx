@@ -11,6 +11,7 @@ import {
 import { SmallLeaf, Frangipani, BaliBorder } from '../components/Botanicals'
 import { TourButton } from '../components/GuidedTour'
 import { uid } from '../lib/helpers'
+import { loadAccommodation, saveAccommodation } from '../lib/supabaseData'
 import type { AppData, Guest } from '../types'
 
 // ── types ─────────────────────────────────────────────────────────────────────
@@ -60,15 +61,13 @@ const EXTRA_BED_EMOJI: Record<ExtraBeddingType, string> = {
 function useAccom(): [AccomData, (d: AccomData) => void] {
   const [state, setState] = useState<AccomData>({ rooms: [] })
   useEffect(() => {
-    import('../lib/supabaseData').then(({ loadAccommodation }) => {
-      loadAccommodation().then(d => setState(d as AccomData)).catch(() => {
-        try { const raw = localStorage.getItem(STORAGE_KEY); if (raw) setState(JSON.parse(raw)) } catch {}
-      })
+    loadAccommodation().then(d => setState(d as AccomData)).catch(() => {
+      try { const raw = localStorage.getItem(STORAGE_KEY); if (raw) setState(JSON.parse(raw)) } catch {}
     })
   }, [])
   const save = (d: AccomData) => {
     setState(d)
-    import('../lib/supabaseData').then(({ saveAccommodation }) => saveAccommodation(d)).catch(() => {
+    saveAccommodation(d).catch(() => {
       try { localStorage.setItem(STORAGE_KEY, JSON.stringify(d)) } catch(e) {
         if (e instanceof DOMException) window.dispatchEvent(new CustomEvent('storage-quota-exceeded'))
       }
