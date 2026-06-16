@@ -31,18 +31,23 @@ export function useSupabaseStorage() {
 
   // Debounced save to Supabase on every data change
   const setData = useCallback((update: AppData | ((prev: AppData) => AppData)) => {
+    // Compute next state without calling other setters inside the updater
+    let nextData: AppData | null = null
     setDataState(prev => {
-      const next = typeof update === 'function' ? update(prev) : update
-      setSyncErr(null)
-      if (saveTimer.current) clearTimeout(saveTimer.current)
-      saveTimer.current = setTimeout(() => {
+      nextData = typeof update === 'function' ? update(prev) : update
+      return nextData
+    })
+    // Schedule side effects outside the updater function
+    setSyncErr(null)
+    if (saveTimer.current) clearTimeout(saveTimer.current)
+    saveTimer.current = setTimeout(() => {
+      if (nextData) {
         setSyncing(true)
-        saveAppData(next)
+        saveAppData(nextData)
           .catch(() => setSyncErr('Could not save — changes may be lost'))
           .finally(() => setSyncing(false))
-      }, 800)
-      return next
-    })
+      }
+    }, 800)
   }, [])
 
   const exportData = useCallback(async () => {
