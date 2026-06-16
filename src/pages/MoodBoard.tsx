@@ -330,60 +330,50 @@ function DropZone({ category, onAdd }: { category: string; onAdd: (imgs: MoodIma
 // ── Main page ─────────────────────────────────────────────────────────────────
 interface Props { data: AppData; setData: (d: AppData | ((p: AppData) => AppData)) => void }
 
-const STORAGE_KEY = 'jb-moodboard'
+// Module-level store — single source of truth, survives all remounts and tab switches
+let _store: MoodBoardData = { images: [], swatches: STARTER_SWATCHES }
+let _loadState: 'pending' | 'loading' | 'done' = 'pending'
+const _listeners = new Set<() => void>()
 
-// Module-level cache — survives component unmount/remount (tab switches)
-let _moodboardCache: MoodBoardData | null = null
-let _moodboardLoaded = false
+function notifyListeners() { _listeners.forEach(fn => fn()) }
+
+// Load from Supabase once per page session
+async function ensureLoaded() {
+  if (_loadState !== 'pending') return
+  _loadState = 'loading'
+  try {
+    const d = await loadMoodBoard()
+    if (d.images.length > 0 || d.swatches.length > 0) {
+      _store = { images: d.images, swatches: d.swatches.length > 0 ? d.swatches : STARTER_SWATCHES }
+    }
+  } catch { /* keep defaults */ }
+  _loadState = 'done'
+  notifyListeners()
+}
+
+// Kick off load immediately when module loads (not waiting for component mount)
+ensureLoaded()
 
 function useMoodBoard(): [MoodBoardData, (d: MoodBoardData) => void] {
-  const [board, setBoard] = useState<MoodBoardData>(
-    () => _moodboardCache ?? { images: [], swatches: STARTER_SWATCHES }
-  )
+  const [, forceRender] = useState(0)
 
   useEffect(() => {
-    // Only fetch from Supabase once per session — module-level flag survives remounts
-    if (_moodboardLoaded) return
-    _moodboardLoaded = true
-
-    loadMoodBoard().then(d => {
-      if (d.images.length > 0 || d.swatches.length > 0) {
-        const next = { images: d.images, swatches: d.swatches.length > 0 ? d.swatches : STARTER_SWATCHES }
-        _moodboardCache = next
-        setBoard(next)
-      } else {
-        // No Supabase data — check localStorage fallback
-        try {
-          const raw = localStorage.getItem(STORAGE_KEY)
-          if (raw) {
-            const parsed = JSON.parse(raw)
-            _moodboardCache = parsed
-            setBoard(parsed)
-          }
-        } catch { /* use defaults */ }
-      }
-    }).catch(() => {
-      try {
-        const raw = localStorage.getItem(STORAGE_KEY)
-        if (raw) {
-          const parsed = JSON.parse(raw)
-          _moodboardCache = parsed
-          setBoard(parsed)
-        }
-      } catch { /* use defaults */ }
-    })
+    // Re-render when load completes
+    const listener = () => forceRender(n => n + 1)
+    _listeners.add(listener)
+    return () => { _listeners.delete(listener) }
   }, [])
 
   const save = (d: MoodBoardData) => {
-    _moodboardCache = d  // update module cache immediately
-    setBoard(d)
+    _store = d  // update store immediately — UI reflects it instantly
+    notifyListeners()
     saveMoodBoard(d).catch(() => {
-      try { localStorage.setItem(STORAGE_KEY, JSON.stringify(d)) } catch(e) {
-        if (e instanceof DOMException) window.dispatchEvent(new CustomEvent('storage-quota-exceeded'))
-      }
+      // Save failed — show quota warning if storage issue, otherwise silent
+      window.dispatchEvent(new CustomEvent('storage-quota-exceeded'))
     })
   }
-  return [board, save]
+
+  return [_store, save]
 }
 
 export function MoodBoard({ data }: Props) {
