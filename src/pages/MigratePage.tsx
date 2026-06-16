@@ -117,12 +117,20 @@ export function MigratePage({ onDone }: { onDone: () => void }) {
         </p>
 
         {results.length === 0 ? (
-          <button onClick={migrate} disabled={running}
-            style={{ width: '100%', padding: 14, borderRadius: 14, fontSize: 14, fontWeight: 600,
-              border: 'none', background: running ? '#E8D5A3' : '#3B2A22',
-              color: running ? '#7A6657' : '#FFF8EE', cursor: running ? 'default' : 'pointer' }}>
-            {running ? 'Migrating…' : 'Start migration'}
-          </button>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            <button onClick={migrate} disabled={running}
+              style={{ width: '100%', padding: 14, borderRadius: 14, fontSize: 14, fontWeight: 600,
+                border: 'none', background: running ? '#E8D5A3' : '#3B2A22',
+                color: running ? '#7A6657' : '#FFF8EE', cursor: running ? 'default' : 'pointer' }}>
+              {running ? 'Migrating…' : 'Start migration'}
+            </button>
+            <button onClick={onDone}
+              style={{ width: '100%', padding: 14, borderRadius: 14, fontSize: 14,
+                border: '1.5px solid #E8D5A3', background: 'transparent',
+                color: '#7A6657', cursor: 'pointer' }}>
+              Skip — my data is already in Supabase
+            </button>
+          </div>
         ) : (
           <>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 24 }}>
