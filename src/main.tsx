@@ -1,4 +1,4 @@
-import { StrictMode, useState, useEffect, useRef } from 'react'
+import { StrictMode, useState, useEffect } from 'react'
 import { createRoot } from 'react-dom/client'
 import './index.css'
 import App from './App.tsx'
@@ -11,52 +11,46 @@ import type { Session } from '@supabase/supabase-js'
 
 const MIGRATED_KEY = 'jb-supabase-migrated'
 
+// Read auth state outside React — avoids setState-during-render entirely
+function getInitialSession(): Session | null {
+  try {
+    // Supabase stores session in localStorage under this key
+    const storageKey = `sb-${new URL(import.meta.env.VITE_SUPABASE_URL as string).hostname.split('.')[0]}-auth-token`
+    const raw = localStorage.getItem(storageKey)
+    if (!raw) return null
+    const parsed = JSON.parse(raw)
+    // Check it hasn't expired
+    if (parsed?.expires_at && parsed.expires_at * 1000 < Date.now()) return null
+    return parsed as Session
+  } catch {
+    return null
+  }
+}
+
 function Root() {
-  const [session,        setSession]        = useState<Session | null>(null)
-  const [checking,       setChecking]       = useState(true)
-  const [needsMigration, setNeedsMigration] = useState(false)
-  const mountedRef = useRef(false)
+  const [session,        setSession]        = useState<Session | null>(getInitialSession)
+  const [needsMigration, setNeedsMigration] = useState(() => {
+    const s = getInitialSession()
+    if (!s) return false
+    if (localStorage.getItem(MIGRATED_KEY)) return false
+    return !!localStorage.getItem('jamie-beth-wedding-planner')
+  })
 
   useEffect(() => {
-    mountedRef.current = true
-
-    // Subscribe to auth changes first
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, newSession) => {
-      if (mountedRef.current) {
-        setSession(newSession)
-        setChecking(false)
-      }
-    })
-
-    // Then get the current session — onAuthStateChange will fire with the result
+    // Refresh session from Supabase (handles token refresh, expiry etc.)
     supabase.auth.getSession().then(({ data: { session: s } }) => {
-      if (mountedRef.current) {
-        setSession(s)
-        if (s && !localStorage.getItem(MIGRATED_KEY)) {
-          const hasLocalData = !!localStorage.getItem('jamie-beth-wedding-planner')
-          setNeedsMigration(hasLocalData)
-        }
-        setChecking(false)
+      setSession(s)
+      if (s && !localStorage.getItem(MIGRATED_KEY)) {
+        const hasLocalData = !!localStorage.getItem('jamie-beth-wedding-planner')
+        if (hasLocalData) setNeedsMigration(true)
       }
     })
 
-    return () => {
-      mountedRef.current = false
-      subscription.unsubscribe()
-    }
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, s) => {
+      setSession(s)
+    })
+    return () => subscription.unsubscribe()
   }, [])
-
-  if (checking) {
-    return (
-      <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center',
-        background: 'linear-gradient(160deg, #1A1208 0%, #2A1E10 100%)' }}>
-        <div style={{ textAlign: 'center' }}>
-          <div style={{ fontSize: 32, marginBottom: 12, animation: 'floatSlow 3s ease-in-out infinite' }}>🌺</div>
-          <p style={{ color: 'rgba(200,164,93,0.6)', fontSize: 12, letterSpacing: '0.15em' }}>LOADING</p>
-        </div>
-      </div>
-    )
-  }
 
   if (!session) return <AuthScreen/>
 
