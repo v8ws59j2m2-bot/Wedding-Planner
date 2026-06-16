@@ -79,21 +79,7 @@ export default function App() {
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const isMobile = useIsMobile()
   const { data, setData, exportData, importData, loading, syncing, syncError } = useSupabaseStorage()
-
-  // Show a loading screen while initial data loads from Supabase
-  if (loading) {
-    return (
-      <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center',
-        background: '#FFF8EE' }}>
-        <div style={{ textAlign: 'center' }}>
-          <div style={{ fontSize: 32, marginBottom: 12, animation: 'floatSlow 3s ease-in-out infinite' }}>🌺</div>
-          <p style={{ color: '#C8A45D', fontSize: 12, letterSpacing: '0.15em', fontFamily: 'Playfair Display, serif' }}>
-            Loading your planner…
-          </p>
-        </div>
-      </div>
-    )
-  }
+  // All hooks must be called before any early returns (Rules of Hooks)
   const { show: quotaWarning, dismiss: dismissQuota } = useQuotaWarning()
 
   // Global tour — one active at a time, managed via a single hook instance per ID
@@ -143,6 +129,21 @@ export default function App() {
       case 'settings':        return <Settings data={data} setData={setData}/>
       default:                return <Dashboard data={data} onNavigate={navigate}/>
     }
+  }
+
+  // Loading screen — shown after all hooks have been called
+  if (loading) {
+    return (
+      <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center',
+        background: '#FFF8EE' }}>
+        <div style={{ textAlign: 'center' }}>
+          <div style={{ fontSize: 32, marginBottom: 12, animation: 'floatSlow 3s ease-in-out infinite' }}>🌺</div>
+          <p style={{ color: '#C8A45D', fontSize: 12, letterSpacing: '0.15em', fontFamily: 'Playfair Display, serif' }}>
+            Loading your planner…
+          </p>
+        </div>
+      </div>
+    )
   }
 
   return (
