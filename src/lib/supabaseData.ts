@@ -96,6 +96,30 @@ export async function saveSeating(seatingData: { tables: any[] }): Promise<void>
   if (error) throw error
 }
 
+// ── Timeline ─────────────────────────────────────────────────────────────────
+export async function loadTimeline(): Promise<any[]> {
+  const userId = await getUserId()
+  if (!userId) return []
+  // Timeline is stored as part of app_data — fetch it directly
+  const { data, error } = await supabase
+    .from('app_data').select('*').eq('user_id', userId).single()
+  if (error || !data) return []
+  return data.timeline ?? []
+}
+
+export async function saveTimeline(timeline: any[]): Promise<void> {
+  const userId = await getUserId()
+  if (!userId) return
+  // Upsert a row with just timeline — merge with existing data server-side
+  const { data: existing } = await supabase
+    .from('app_data').select('*').eq('user_id', userId).single()
+  if (!existing) return // no app_data row yet — skip, will be created on next full save
+  const { error } = await supabase.from('app_data')
+    .update({ timeline } as any)
+    .eq('user_id', userId)
+  if (error) throw error
+}
+
 // ── Mood Board ────────────────────────────────────────────────────────────────
 export async function loadMoodBoard(): Promise<{ images: any[]; swatches: any[] }> {
   const userId = await getUserId()

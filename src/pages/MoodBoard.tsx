@@ -333,23 +333,37 @@ interface Props { data: AppData; setData: (d: AppData | ((p: AppData) => AppData
 const STORAGE_KEY = 'jb-moodboard'
 
 function useMoodBoard(): [MoodBoardData, (d: MoodBoardData) => void] {
-  const [board, setBoard] = useState<MoodBoardData>(() => {
-    // Fast initial value from localStorage while Supabase loads
-    try {
-      const raw = localStorage.getItem(STORAGE_KEY)
-      return raw ? JSON.parse(raw) : { images: [], swatches: STARTER_SWATCHES }
-    } catch { return { images: [], swatches: STARTER_SWATCHES } }
-  })
+  const [board, setBoard] = useState<MoodBoardData>({ images: [], swatches: STARTER_SWATCHES })
+  const loadedRef = useRef(false)  // prevent Supabase load from overwriting after user has saved
 
   useEffect(() => {
     loadMoodBoard().then(d => {
-      if (d.images.length > 0 || d.swatches.length > 0) {
-        setBoard({ images: d.images, swatches: d.swatches.length > 0 ? d.swatches : STARTER_SWATCHES })
+      // Only apply Supabase data on first load, never after user has made changes
+      if (!loadedRef.current) {
+        loadedRef.current = true
+        if (d.images.length > 0 || d.swatches.length > 0) {
+          setBoard({ images: d.images, swatches: d.swatches.length > 0 ? d.swatches : STARTER_SWATCHES })
+        } else {
+          // No Supabase data yet — check localStorage
+          try {
+            const raw = localStorage.getItem(STORAGE_KEY)
+            if (raw) setBoard(JSON.parse(raw))
+          } catch { /* use defaults */ }
+        }
       }
-    }).catch(() => { /* keep localStorage value */ })
+    }).catch(() => {
+      if (!loadedRef.current) {
+        loadedRef.current = true
+        try {
+          const raw = localStorage.getItem(STORAGE_KEY)
+          if (raw) setBoard(JSON.parse(raw))
+        } catch { /* use defaults */ }
+      }
+    })
   }, [])
 
   const save = (d: MoodBoardData) => {
+    loadedRef.current = true  // mark as loaded so Supabase fetch can't overwrite
     setBoard(d)
     saveMoodBoard(d).catch(() => {
       try { localStorage.setItem(STORAGE_KEY, JSON.stringify(d)) } catch(e) {
