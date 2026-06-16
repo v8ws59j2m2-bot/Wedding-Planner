@@ -1,8 +1,10 @@
 import { useState, useEffect } from 'react'
-import { Menu, Download, Upload } from 'lucide-react'
+import { Menu, Download, Upload, LogOut } from 'lucide-react'
 import type { Page } from '../types'
 import { loadWeddingDetails } from '../services/dataService'
 import { HelpPanel } from './HelpPanel'
+import { SyncIndicator } from './SyncIndicator'
+import { supabase } from '../lib/supabase'
 
 const PAGE_TITLES: Record<Page, string> = {
   dashboard:        'Dashboard',
@@ -35,10 +37,12 @@ interface Props {
   onExport: () => void
   onImport: (f: File) => void
   onStartTour: (tourId: string) => void
+  syncing?: boolean
+  syncError?: string | null
   isMobile?: boolean
 }
 
-export function TopBar({ page, onToggleSidebar, onExport, onImport, onStartTour, isMobile }: Props) {
+export function TopBar({ page, onToggleSidebar, onExport, onImport, onStartTour, syncing = false, syncError = null, isMobile }: Props) {
   const weddingDate = new Date(loadWeddingDetails().date + 'T00:00:00')
   const days = useCountdown(weddingDate)
 
@@ -113,8 +117,24 @@ export function TopBar({ page, onToggleSidebar, onExport, onImport, onStartTour,
             onChange={e => e.target.files?.[0] && onImport(e.target.files[0])}/>
         </label>
 
+        {/* Sync status */}
+        {!isMobile && <SyncIndicator syncing={syncing} syncError={syncError}/>}
+
         {/* Help */}
         <HelpPanel onStartTour={onStartTour}/>
+
+        {/* Sign out */}
+        <button
+          onClick={() => supabase.auth.signOut()}
+          title="Sign out"
+          style={{ display: 'flex', alignItems: 'center', justifyContent: 'center',
+            width: 32, height: 32, borderRadius: 8, border: 'none',
+            background: 'transparent', cursor: 'pointer', color: '#A89080' }}
+          onMouseEnter={e => (e.currentTarget as HTMLElement).style.background = 'rgba(0,0,0,0.05)'}
+          onMouseLeave={e => (e.currentTarget as HTMLElement).style.background = 'transparent'}
+        >
+          <LogOut size={15}/>
+        </button>
       </div>
     </header>
   )

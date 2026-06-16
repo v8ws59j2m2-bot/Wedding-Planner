@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import { createPortal } from 'react-dom'
 import {
   DragDropContext, Droppable, Draggable, type DropResult,
@@ -58,13 +58,22 @@ const EXTRA_BED_EMOJI: Record<ExtraBeddingType, string> = {
 
 // ── storage ───────────────────────────────────────────────────────────────────
 function useAccom(): [AccomData, (d: AccomData) => void] {
-  const [state, setState] = useState<AccomData>(() => {
-    try {
-      const raw = localStorage.getItem(STORAGE_KEY)
-      return raw ? JSON.parse(raw) : { rooms: [] }
-    } catch { return { rooms: [] } }
-  })
-  const save = (d: AccomData) => { setState(d); try { localStorage.setItem(STORAGE_KEY, JSON.stringify(d)) } catch(e) { if (e instanceof DOMException) window.dispatchEvent(new CustomEvent("storage-quota-exceeded")) } }
+  const [state, setState] = useState<AccomData>({ rooms: [] })
+  useEffect(() => {
+    import('../lib/supabaseData').then(({ loadAccommodation }) => {
+      loadAccommodation().then(d => setState(d as AccomData)).catch(() => {
+        try { const raw = localStorage.getItem(STORAGE_KEY); if (raw) setState(JSON.parse(raw)) } catch {}
+      })
+    })
+  }, [])
+  const save = (d: AccomData) => {
+    setState(d)
+    import('../lib/supabaseData').then(({ saveAccommodation }) => saveAccommodation(d)).catch(() => {
+      try { localStorage.setItem(STORAGE_KEY, JSON.stringify(d)) } catch(e) {
+        if (e instanceof DOMException) window.dispatchEvent(new CustomEvent('storage-quota-exceeded'))
+      }
+    })
+  }
   return [state, save]
 }
 

@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef, useMemo } from 'react'
+import { useState, useCallback, useRef, useMemo, useEffect } from 'react'
 import { createPortal } from 'react-dom'
 import {
   DragDropContext, Droppable, Draggable,
@@ -47,13 +47,23 @@ function exportJSON(data: AppData) {
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 function useSeating(): [SeatingData, (d: SeatingData) => void] {
-  const [state, setState] = useState<SeatingData>(() => {
-    try {
-      const raw = localStorage.getItem(STORAGE_KEY)
-      return raw ? JSON.parse(raw) : { tables: [] }
-    } catch { return { tables: [] } }
-  })
-  const save = (d: SeatingData) => { setState(d); try { localStorage.setItem(STORAGE_KEY, JSON.stringify(d)) } catch(e) { if (e instanceof DOMException) window.dispatchEvent(new CustomEvent("storage-quota-exceeded")) } }
+  const [state, setState] = useState<SeatingData>({ tables: [] })
+  // Load from Supabase on mount, with localStorage fallback
+  useEffect(() => {
+    import('../lib/supabaseData').then(({ loadSeating }) => {
+      loadSeating().then(d => setState(d as SeatingData)).catch(() => {
+        try { const raw = localStorage.getItem(STORAGE_KEY); if (raw) setState(JSON.parse(raw)) } catch {}
+      })
+    })
+  }, [])
+  const save = (d: SeatingData) => {
+    setState(d)
+    import('../lib/supabaseData').then(({ saveSeating }) => saveSeating(d)).catch(() => {
+      try { localStorage.setItem(STORAGE_KEY, JSON.stringify(d)) } catch(e) {
+        if (e instanceof DOMException) window.dispatchEvent(new CustomEvent('storage-quota-exceeded'))
+      }
+    })
+  }
   return [state, save]
 }
 
