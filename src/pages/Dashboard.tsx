@@ -3,7 +3,7 @@ import { Users, PiggyBank, CheckSquare, Store, ArrowRight, Calendar, Sparkles } 
 import { LilySprig, SmallLeaf, Frangipani, TempleGate, PalmFrond, RiceFields, BaliBorder, BatikCorner } from '../components/Botanicals'
 import { useIsMobile } from '../hooks/useIsMobile'
 import { guestAgeCategory, countOverduePayments } from '../lib/helpers'
-import { loadWeddingDetails } from '../services/dataService'
+import { useWeddingDetails } from '../hooks/useWeddingDetails'
 import type { AppData, Page } from '../types'
 
 interface Props {
@@ -13,8 +13,9 @@ interface Props {
 
 // ── Countdown hook ────────────────────────────────────────────────────────────
 function useCountdown() {
+  const details = useWeddingDetails()
   const calc = () => {
-    const weddingDate = new Date(loadWeddingDetails().date + 'T00:00:00')
+    const weddingDate = new Date(details.date + 'T00:00:00')
     const diff = Math.max(0, weddingDate.getTime() - Date.now())
     return {
       days:    Math.floor(diff / 86400000),

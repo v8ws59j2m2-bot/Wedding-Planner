@@ -2,7 +2,7 @@ import { useState, useMemo } from 'react'
 import { Printer, FileText, Eye, EyeOff } from 'lucide-react'
 import { SmallLeaf, Frangipani, BaliBorder } from '../components/Botanicals'
 import type { AppData, Event, WeddingDetails } from '../types'
-import { loadWeddingDetails } from '../services/dataService'
+import { useWeddingDetails } from '../hooks/useWeddingDetails'
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 function fmtDate(iso: string) {
@@ -26,7 +26,7 @@ function fmtTime(t?: string) {
 interface Props { data: AppData }
 
 export function Itinerary({ data }: Props) {
-  const details: WeddingDetails = loadWeddingDetails()
+  const details: WeddingDetails = useWeddingDetails()
   const allEvents = useMemo(() => (data.events ?? []).filter(e => e.includeInItinerary)
     .sort((a, b) => a.date.localeCompare(b.date) || (a.time ?? '').localeCompare(b.time ?? '')), [data.events])
 

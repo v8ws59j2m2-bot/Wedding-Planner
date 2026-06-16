@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { Menu, Download, Upload, LogOut } from 'lucide-react'
 import type { Page } from '../types'
-import { loadWeddingDetails } from '../services/dataService'
+import { useWeddingDetails } from '../hooks/useWeddingDetails'
 import { HelpPanel } from './HelpPanel'
 import { SyncIndicator } from './SyncIndicator'
 import { supabase } from '../lib/supabase'
@@ -43,7 +43,8 @@ interface Props {
 }
 
 export function TopBar({ page, onToggleSidebar, onExport, onImport, onStartTour, syncing = false, syncError = null, isMobile }: Props) {
-  const weddingDate = new Date(loadWeddingDetails().date + 'T00:00:00')
+  const details = useWeddingDetails()
+  const weddingDate = new Date(details.date + 'T00:00:00')
   const days = useCountdown(weddingDate)
 
   return (
