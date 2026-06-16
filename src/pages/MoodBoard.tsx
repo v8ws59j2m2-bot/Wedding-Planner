@@ -332,38 +332,50 @@ interface Props { data: AppData; setData: (d: AppData | ((p: AppData) => AppData
 
 const STORAGE_KEY = 'jb-moodboard'
 
+// Module-level cache — survives component unmount/remount (tab switches)
+let _moodboardCache: MoodBoardData | null = null
+let _moodboardLoaded = false
+
 function useMoodBoard(): [MoodBoardData, (d: MoodBoardData) => void] {
-  const [board, setBoard] = useState<MoodBoardData>({ images: [], swatches: STARTER_SWATCHES })
-  const loadedRef = useRef(false)  // prevent Supabase load from overwriting after user has saved
+  const [board, setBoard] = useState<MoodBoardData>(
+    () => _moodboardCache ?? { images: [], swatches: STARTER_SWATCHES }
+  )
 
   useEffect(() => {
+    // Only fetch from Supabase once per session — module-level flag survives remounts
+    if (_moodboardLoaded) return
+    _moodboardLoaded = true
+
     loadMoodBoard().then(d => {
-      // Only apply Supabase data on first load, never after user has made changes
-      if (!loadedRef.current) {
-        loadedRef.current = true
-        if (d.images.length > 0 || d.swatches.length > 0) {
-          setBoard({ images: d.images, swatches: d.swatches.length > 0 ? d.swatches : STARTER_SWATCHES })
-        } else {
-          // No Supabase data yet — check localStorage
-          try {
-            const raw = localStorage.getItem(STORAGE_KEY)
-            if (raw) setBoard(JSON.parse(raw))
-          } catch { /* use defaults */ }
-        }
-      }
-    }).catch(() => {
-      if (!loadedRef.current) {
-        loadedRef.current = true
+      if (d.images.length > 0 || d.swatches.length > 0) {
+        const next = { images: d.images, swatches: d.swatches.length > 0 ? d.swatches : STARTER_SWATCHES }
+        _moodboardCache = next
+        setBoard(next)
+      } else {
+        // No Supabase data — check localStorage fallback
         try {
           const raw = localStorage.getItem(STORAGE_KEY)
-          if (raw) setBoard(JSON.parse(raw))
+          if (raw) {
+            const parsed = JSON.parse(raw)
+            _moodboardCache = parsed
+            setBoard(parsed)
+          }
         } catch { /* use defaults */ }
       }
+    }).catch(() => {
+      try {
+        const raw = localStorage.getItem(STORAGE_KEY)
+        if (raw) {
+          const parsed = JSON.parse(raw)
+          _moodboardCache = parsed
+          setBoard(parsed)
+        }
+      } catch { /* use defaults */ }
     })
   }, [])
 
   const save = (d: MoodBoardData) => {
-    loadedRef.current = true  // mark as loaded so Supabase fetch can't overwrite
+    _moodboardCache = d  // update module cache immediately
     setBoard(d)
     saveMoodBoard(d).catch(() => {
       try { localStorage.setItem(STORAGE_KEY, JSON.stringify(d)) } catch(e) {
