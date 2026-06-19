@@ -7,15 +7,21 @@ if (!url || !key) {
   throw new Error('Missing VITE_SUPABASE_URL or VITE_SUPABASE_ANON_KEY environment variables')
 }
 
-// Registered by the app-data realtime subscription to resubscribe after socket drops
-let realtimeReconnectHandler: (() => void) | null = null
+// Handlers invoked when the realtime socket drops (app data, mood board, etc.)
+const realtimeReconnectHandlers = new Set<() => void>()
 
-export function registerRealtimeReconnect(handler: () => void) {
-  realtimeReconnectHandler = handler
+export function registerRealtimeReconnect(handler: () => void): () => void {
+  realtimeReconnectHandlers.add(handler)
+  return () => { realtimeReconnectHandlers.delete(handler) }
 }
 
-export function unregisterRealtimeReconnect() {
-  realtimeReconnectHandler = null
+export function unregisterRealtimeReconnect(handler?: () => void) {
+  if (handler) realtimeReconnectHandlers.delete(handler)
+  else realtimeReconnectHandlers.clear()
+}
+
+function notifyRealtimeReconnect() {
+  for (const handler of realtimeReconnectHandlers) handler()
 }
 
 export const supabase = createClient(url, key, {
@@ -29,7 +35,7 @@ export const supabase = createClient(url, key, {
     heartbeatCallback: (status) => {
       console.log('[sync] heartbeat', status)
       if (status === 'disconnected' || status === 'timeout' || status === 'error') {
-        realtimeReconnectHandler?.()
+        notifyRealtimeReconnect()
       }
     },
   },

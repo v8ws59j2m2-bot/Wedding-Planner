@@ -1,4 +1,4 @@
-import { useState, useMemo, useRef } from 'react'
+import { useState, useMemo, useRef, useEffect } from 'react'
 import {
   Plus, X, Edit2, Trash2, Search, FileJson, Upload,
   Palette, Image as ImageIcon, Grid3X3, Filter,
@@ -7,7 +7,7 @@ import { SmallLeaf, Frangipani, BaliBorder } from '../components/Botanicals'
 import { uid } from '../lib/helpers'
 import { uploadMoodImage, type MoodBoardImage, type MoodBoardSwatch } from '../lib/supabaseData'
 import { supabase } from '../lib/supabase'
-import { useMoodBoard } from '../hooks/useMoodBoard'
+import { useMoodBoardContext } from '../context/MoodBoardContext'
 import type { AppData } from '../types'
 
 // ── helpers ───────────────────────────────────────────────────────────────────
@@ -119,6 +119,11 @@ function ImageCard({ img, onEdit, onDelete, refreshKey = 0 }: {
   const [hover, setHover] = useState(false)
   const [loadError, setLoadError] = useState(false)
   const [loadAttempt, setLoadAttempt] = useState(0)
+
+  useEffect(() => {
+    setLoadError(false)
+    setLoadAttempt(0)
+  }, [img.src, refreshKey])
 
   // Cache-busted src using refreshKey (updated on realtime/data change)
   // On error, force additional bust + retry
@@ -318,7 +323,8 @@ function DropZone({ category, onAdd }: { category: string; onAdd: (imgs: MoodBoa
       setProgress(Math.round(((i + 1) / valid.length) * 100))
     }
 
-    onAdd(results)
+    if (results.length) onAdd(results)
+    if (inputRef.current) inputRef.current.value = ''
     setLoading(false)
     setProgress(0)
   }
@@ -366,7 +372,7 @@ function DropZone({ category, onAdd }: { category: string; onAdd: (imgs: MoodBoa
 interface Props { data: AppData; setData: (d: AppData | ((p: AppData) => AppData)) => void }
 
 export function MoodBoard({ data }: Props) {
-  const { board, loading, refreshKey, addImages, saveImage, deleteImage, saveSwatch, deleteSwatch } = useMoodBoard()
+  const { board, loading, refreshKey, addImages, saveImage, deleteImage, saveSwatch, deleteSwatch } = useMoodBoardContext()
   const [activeCategory, setActiveCategory] = useState<string>('All')
   const [search, setSearch]                 = useState('')
   const [editImage, setEditImage]           = useState<MoodBoardImage | null>(null)

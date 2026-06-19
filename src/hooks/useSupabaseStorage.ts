@@ -14,7 +14,7 @@ import {
   type ConnectionStatus,
 } from '../lib/supabaseData'
 import { exportAllData, parseImport } from '../services/dataService'
-import { supabase, registerRealtimeReconnect, unregisterRealtimeReconnect } from '../lib/supabase'
+import { supabase, registerRealtimeReconnect } from '../lib/supabase'
 import type { AppData } from '../types'
 
 const DEFAULT: AppData = {
@@ -61,7 +61,10 @@ export function useSupabaseStorage() {
         budget: loaded.budget.length,
         checklist: loaded.checklist.length,
       })
-      window.dispatchEvent(new CustomEvent(MOODBOARD_PULL_EVENT, { detail: { reason } }))
+      // Mood board has its own realtime channel — only pull on explicit user/resume actions
+      if (reason === 'sync-now' || reason === 'focus' || reason === 'visibility' || reason === 'online') {
+        window.dispatchEvent(new CustomEvent(MOODBOARD_PULL_EVENT, { detail: { reason } }))
+      }
     } catch (err) {
       console.log('[sync] pullLatest failed', { reason, err })
       setSyncErr('Could not refresh from Supabase')
@@ -80,6 +83,7 @@ export function useSupabaseStorage() {
   // Initial load + realtime subscription
   useEffect(() => {
     let cancelled = false
+    let unregisterHeartbeat: (() => void) | undefined
 
     async function init() {
       const { data: { session } } = await supabase.auth.getSession()
@@ -111,7 +115,7 @@ export function useSupabaseStorage() {
       })
       realtimeRef.current = sub
 
-      registerRealtimeReconnect(() => {
+      unregisterHeartbeat = registerRealtimeReconnect(() => {
         console.log('[sync] heartbeat reconnect')
         setConnectionStatus('reconnecting')
         sub.reconnect()
@@ -128,7 +132,7 @@ export function useSupabaseStorage() {
 
     return () => {
       cancelled = true
-      unregisterRealtimeReconnect()
+      unregisterHeartbeat?.()
       realtimeRef.current?.destroy()
       realtimeRef.current = null
     }

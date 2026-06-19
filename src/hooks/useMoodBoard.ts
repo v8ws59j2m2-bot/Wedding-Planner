@@ -4,16 +4,18 @@ import {
   saveMoodBoard,
   subscribeToMoodBoard,
   mergeMoodBoardData,
+  shouldRejectStaleMoodBoardRemote,
   MOODBOARD_PULL_EVENT,
   type MoodBoardData,
   type MoodBoardImage,
   type MoodBoardSwatch,
 } from '../lib/supabaseData'
-import { supabase } from '../lib/supabase'
+import { supabase, registerRealtimeReconnect } from '../lib/supabase'
 
 const SAVE_DEBOUNCE_MS = 800
 const SAVE_ECHO_IGNORE_MS = 1500
 const REFETCH_DEBOUNCE_MS = 400
+const HEALTH_CHECK_MS = 30_000
 
 const DEFAULT_SWATCHES: MoodBoardSwatch[] = [
   { id: 'sw-1', hex: '#FFF8EE', name: 'Warm Ivory' },
@@ -25,10 +27,6 @@ const DEFAULT_SWATCHES: MoodBoardSwatch[] = [
 ]
 
 const EMPTY: MoodBoardData = { images: [], swatches: DEFAULT_SWATCHES, updatedAt: null }
-
-function moodBoardTime(updatedAt: string | null): number {
-  return updatedAt ? new Date(updatedAt).getTime() : 0
-}
 
 function withDefaultSwatches(board: MoodBoardData): MoodBoardData {
   return {
@@ -61,6 +59,7 @@ export function useMoodBoard() {
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const refetchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const pullInFlightRef = useRef<Promise<void> | null>(null)
+  const applyQueueRef = useRef<Promise<void>>(Promise.resolve())
   const realtimeRef = useRef<ReturnType<typeof subscribeToMoodBoard> | null>(null)
 
   const hasPendingLocalChanges = useCallback(() => {
@@ -76,48 +75,62 @@ export function useMoodBoard() {
     return Date.now() - lastSaveAtRef.current < SAVE_ECHO_IGNORE_MS
   }, [])
 
-  const shouldApplyRemote = useCallback((remote: MoodBoardData): boolean => {
-    const local = boardRef.current
-    const remoteTime = moodBoardTime(remote.updatedAt)
-    const localTime = moodBoardTime(serverUpdatedAtRef.current)
-
-    if (hasPendingLocalChanges()) return true // merge, never blind-replace
-
-    if (local.images.length > 0 && remote.images.length === 0 && remoteTime <= localTime) {
-      return false
+  const flushSave = useCallback(async (): Promise<void> => {
+    if (saveTimerRef.current) {
+      clearTimeout(saveTimerRef.current)
+      saveTimerRef.current = null
     }
+    if (!hasLoadedRef.current || isSavingRef.current) return
 
-    if (
-      remote.images.length < local.images.length &&
-      remoteTime <= localTime
-    ) {
-      return false
-    }
-
-    return true
-  }, [hasPendingLocalChanges])
-
-  const applyRemote = useCallback((remote: MoodBoardData, reason: string) => {
-    if (shouldIgnoreRemote()) {
-      console.log('[moodboard] ignoring remote', { reason })
-      return
-    }
-
-    if (!shouldApplyRemote(remote)) {
-      console.log('[moodboard] rejecting stale remote', {
-        reason,
-        remoteImages: remote.images.length,
-        localImages: boardRef.current.images.length,
+    const snapshot = boardRef.current
+    isSavingRef.current = true
+    lastSaveAtRef.current = Date.now()
+    console.log('[moodboard] save start', { images: snapshot.images.length })
+    try {
+      const updatedAt = await saveMoodBoard({
+        images: snapshot.images,
+        swatches: snapshot.swatches,
       })
+      if (updatedAt) serverUpdatedAtRef.current = updatedAt
+      console.log('[moodboard] save ok', { updatedAt })
+    } catch (err) {
+      console.log('[moodboard] save failed', err)
+    } finally {
+      isSavingRef.current = false
+    }
+  }, [])
+
+  const scheduleSave = useCallback(() => {
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
+    saveTimerRef.current = setTimeout(() => {
+      saveTimerRef.current = null
+      void flushSave()
+    }, SAVE_DEBOUNCE_MS)
+  }, [flushSave])
+
+  const applyRemoteSync = useCallback((remote: MoodBoardData, reason: string) => {
+    if (shouldIgnoreRemote()) {
+      console.log('[moodboard] ignoring remote echo', { reason })
       return
     }
 
     const pending = hasPendingLocalChanges()
+    const local = boardRef.current
+
+    if (shouldRejectStaleMoodBoardRemote(local, remote, serverUpdatedAtRef.current, pending)) {
+      console.log('[moodboard] rejecting stale remote', {
+        reason,
+        remoteImages: remote.images.length,
+        localImages: local.images.length,
+      })
+      return
+    }
+
     const merged = withDefaultSwatches(
-      mergeMoodBoardData(boardRef.current, remote, pending),
+      mergeMoodBoardData(local, remote, pending, serverUpdatedAtRef.current),
     )
 
-    if (boardsEqual(boardRef.current, merged)) {
+    if (boardsEqual(local, merged)) {
       if (remote.updatedAt && !serverUpdatedAtRef.current) {
         serverUpdatedAtRef.current = remote.updatedAt
       }
@@ -130,9 +143,15 @@ export function useMoodBoard() {
     console.log('[moodboard] applied remote', {
       reason,
       images: merged.images.length,
-      merged: pending || remote.images.length < boardRef.current.images.length,
+      pending,
     })
-  }, [bumpRefresh, hasPendingLocalChanges, shouldApplyRemote, shouldIgnoreRemote])
+  }, [bumpRefresh, hasPendingLocalChanges, shouldIgnoreRemote])
+
+  const applyRemote = useCallback((remote: MoodBoardData, reason: string) => {
+    applyQueueRef.current = applyQueueRef.current
+      .then(() => { applyRemoteSync(remote, reason) })
+      .catch(err => { console.log('[moodboard] apply queue error', err) })
+  }, [applyRemoteSync])
 
   const pullLatest = useCallback(async (reason: string) => {
     if (!hasLoadedRef.current) return
@@ -141,55 +160,36 @@ export function useMoodBoard() {
 
     console.log('[moodboard] pullLatest start', { reason })
 
-    pullInFlightRef.current = (async () => {
+    pullInFlightRef.current = applyQueueRef.current.then(async () => {
       try {
-        const remote = await loadMoodBoard()
-        applyRemote(remote, reason)
+        const remote = await loadMoodBoard({ allowLegacyMigration: false })
+        applyRemoteSync(remote, reason)
         console.log('[moodboard] pullLatest ok', { reason, images: remote.images.length })
       } catch (err) {
         console.log('[moodboard] pullLatest failed', { reason, err })
-      } finally {
-        pullInFlightRef.current = null
       }
-    })()
+    }).finally(() => {
+      pullInFlightRef.current = null
+    })
 
     return pullInFlightRef.current
-  }, [applyRemote, shouldIgnoreRemote])
+  }, [applyRemoteSync, shouldIgnoreRemote])
 
   const pullLatestRef = useRef(pullLatest)
   pullLatestRef.current = pullLatest
-
-  const scheduleSave = useCallback((next: Omit<MoodBoardData, 'updatedAt'>) => {
-    if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
-    saveTimerRef.current = setTimeout(async () => {
-      saveTimerRef.current = null
-      if (!hasLoadedRef.current) return
-      isSavingRef.current = true
-      lastSaveAtRef.current = Date.now()
-      console.log('[moodboard] save start', { images: next.images.length })
-      try {
-        const updatedAt = await saveMoodBoard(next)
-        if (updatedAt) serverUpdatedAtRef.current = updatedAt
-        console.log('[moodboard] save ok', { updatedAt })
-      } catch (err) {
-        console.log('[moodboard] save failed', err)
-      } finally {
-        isSavingRef.current = false
-      }
-    }, SAVE_DEBOUNCE_MS)
-  }, [])
 
   const updateBoard = useCallback((
     update: MoodBoardData | ((prev: MoodBoardData) => MoodBoardData),
   ) => {
     setBoard(prev => {
       const next = typeof update === 'function' ? update(prev) : update
-      scheduleSave({ images: next.images, swatches: next.swatches })
+      scheduleSave()
       return next
     })
   }, [scheduleSave])
 
   const addImages = useCallback((imgs: MoodBoardImage[]) => {
+    if (!imgs.length) return
     updateBoard(prev => ({ ...prev, images: [...prev.images, ...imgs] }))
   }, [updateBoard])
 
@@ -226,15 +226,21 @@ export function useMoodBoard() {
     }))
   }, [updateBoard])
 
-  // Initial load + realtime (runs once)
+  // Initial load + realtime (runs once for app lifetime via MoodBoardProvider)
   useEffect(() => {
     let cancelled = false
+    let unregisterHeartbeat: (() => void) | undefined
 
     async function init() {
-      const { data: { user } } = await supabase.auth.getUser()
+      const { data: { session } } = await supabase.auth.getSession()
+      const user = session?.user
       if (!user || cancelled) throw new Error('Not authenticated')
 
-      const loaded = await loadMoodBoard()
+      if (session?.access_token) {
+        await supabase.realtime.setAuth(session.access_token)
+      }
+
+      const loaded = await loadMoodBoard({ allowLegacyMigration: true })
       if (cancelled) return
 
       const initial = withDefaultSwatches(loaded)
@@ -250,6 +256,12 @@ export function useMoodBoard() {
         shouldIgnoreUpdate: shouldIgnoreRemote,
       })
       realtimeRef.current = sub
+
+      unregisterHeartbeat = registerRealtimeReconnect(() => {
+        console.log('[moodboard] heartbeat reconnect')
+        sub.reconnect()
+        void pullLatestRef.current('heartbeat')
+      })
     }
 
     init().catch(err => {
@@ -259,15 +271,26 @@ export function useMoodBoard() {
 
     return () => {
       cancelled = true
+      unregisterHeartbeat?.()
       realtimeRef.current?.destroy()
       realtimeRef.current = null
-      if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
       if (refetchTimerRef.current) clearTimeout(refetchTimerRef.current)
+      void flushSave()
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  // Catch-up on focus / visibility / Sync Now (no periodic polling)
+  // Reconnect mood board channel when auth token refreshes
+  useEffect(() => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
+      if (!session?.access_token) return
+      await supabase.realtime.setAuth(session.access_token)
+      realtimeRef.current?.reconnect()
+    })
+    return () => subscription.unsubscribe()
+  }, [])
+
+  // Catch-up on focus / visibility / Sync Now
   useEffect(() => {
     const schedulePull = (reason: string) => {
       if (refetchTimerRef.current) clearTimeout(refetchTimerRef.current)
@@ -303,6 +326,19 @@ export function useMoodBoard() {
       document.removeEventListener('visibilitychange', onVisibility)
       window.removeEventListener(MOODBOARD_PULL_EVENT, onPullEvent)
     }
+  }, [])
+
+  // Periodic health check — reconnect only, no redundant full pull
+  useEffect(() => {
+    const id = setInterval(() => {
+      if (document.hidden) return
+      const status = realtimeRef.current?.getChannelStatus()
+      if (status && status !== 'SUBSCRIBED') {
+        console.log('[moodboard] health check reconnect', { status })
+        realtimeRef.current?.reconnect()
+      }
+    }, HEALTH_CHECK_MS)
+    return () => clearInterval(id)
   }, [])
 
   return {
