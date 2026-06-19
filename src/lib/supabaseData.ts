@@ -34,16 +34,9 @@ async function withRetry<T>(fn: () => Promise<T>, maxAttempts = 3): Promise<T> {
   throw lastError
 }
 
-// ── AppData ───────────────────────────────────────────────────────────────────
-export async function loadAppData(): Promise<AppData> {
-  const userId = await getUserId()
-  if (!userId) return { ...DEFAULT_APP_DATA }
-
-  const { data, error } = await supabase
-    .from('app_data').select('*').eq('user_id', userId).single()
-  if (error || !data) return { ...DEFAULT_APP_DATA }
-
-  const guests = (data.guests ?? []).map((g: any) => {
+// Map a Supabase app_data row → AppData (shared by load + realtime)
+export function mapAppDataRow(row: Record<string, unknown>): AppData {
+  const guests = ((row.guests as AppData['guests']) ?? []).map(g => {
     if (!g.firstName && !g.lastName && g.name) {
       const parts = g.name.split('&')[0].trim().split(' ')
       return { ...g, firstName: parts[0] ?? '', lastName: parts.slice(1).join(' ') || undefined }
@@ -53,13 +46,27 @@ export async function loadAppData(): Promise<AppData> {
 
   return {
     guests,
-    budget:     data.budget      ?? [],
-    checklist:  data.checklist   ?? [],
-    vendors:    data.vendors     ?? [],
-    moodImages: data.mood_images ?? [],
-    events:     data.events      ?? [],
-    travelInfo: data.travel_info ?? [],
+    budget:     (row.budget      as AppData['budget'])     ?? [],
+    checklist:  (row.checklist   as AppData['checklist'])  ?? [],
+    vendors:    (row.vendors     as AppData['vendors'])    ?? [],
+    moodImages: (row.mood_images as AppData['moodImages']) ?? [],
+    events:     (row.events      as AppData['events'])     ?? [],
+    travelInfo: (row.travel_info as AppData['travelInfo']) ?? [],
   }
+}
+
+// ── AppData ───────────────────────────────────────────────────────────────────
+export async function loadAppData(): Promise<AppData> {
+  const userId = await getUserId()
+  if (!userId) throw new Error('Not authenticated')
+
+  const { data, error } = await supabase
+    .from('app_data').select('*').eq('user_id', userId).maybeSingle()
+
+  if (error) throw error
+  if (!data) return { ...DEFAULT_APP_DATA }
+
+  return mapAppDataRow(data)
 }
 
 export async function saveAppData(appData: AppData): Promise<void> {

@@ -5,7 +5,8 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { loadAppData, saveAppData, loadWeddingDetails } from '../lib/supabaseData'
+import type { RealtimeChannel } from '@supabase/supabase-js'
+import { loadAppData, saveAppData, loadWeddingDetails, mapAppDataRow } from '../lib/supabaseData'
 import { exportAllData, parseImport } from '../services/dataService'
 import { supabase } from '../lib/supabase'
 import type { AppData } from '../types'
@@ -21,50 +22,55 @@ export function useSupabaseStorage() {
   const [syncing, setSyncing]   = useState(false)
   const [syncErr, setSyncErr]   = useState<string | null>(null)
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const hasLoadedRef = useRef(false)
+  const isSavingRef  = useRef(false)
 
-  // Load on mount
+  // Load first, then subscribe to realtime — never save or apply remote updates until loaded
   useEffect(() => {
-    loadAppData()
-      .then(d => setDataState(d))
-      .catch(() => setSyncErr('Could not load data'))
-      .finally(() => setLoading(false))
-  }, [])
+    let cancelled = false
+    let channel: RealtimeChannel | null = null
 
-  // Basic realtime subscription for app_data (live sync across tabs/devices when authenticated)
-  useEffect(() => {
-    const channel = supabase
-      .channel('app-data-realtime')
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'app_data' },
-        (payload) => {
-          if (payload.new && typeof payload.new === 'object') {
-            const newData = payload.new as any
-            // Only update if it looks like our data (has guests etc.)
-            if (Array.isArray(newData.guests)) {
-              setDataState({
-                guests: newData.guests ?? [],
-                budget: newData.budget ?? [],
-                checklist: newData.checklist ?? [],
-                vendors: newData.vendors ?? [],
-                moodImages: newData.mood_images ?? [],
-                events: newData.events ?? [],
-                travelInfo: newData.travel_info ?? [],
-              })
-            }
-          }
-        }
-      )
-      .subscribe()
+    async function init() {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user || cancelled) throw new Error('Not authenticated')
+
+      const loaded = await loadAppData()
+      if (cancelled) return
+
+      setDataState(loaded)
+      hasLoadedRef.current = true
+      setLoading(false)
+
+      channel = supabase
+        .channel(`app-data-realtime-${user.id}`)
+        .on(
+          'postgres_changes',
+          { event: '*', schema: 'public', table: 'app_data', filter: `user_id=eq.${user.id}` },
+          (payload) => {
+            if (isSavingRef.current) return
+            if (!payload.new || typeof payload.new !== 'object') return
+            const row = payload.new as Record<string, unknown>
+            if (row.user_id !== user.id) return
+            setDataState(mapAppDataRow(row))
+          },
+        )
+        .subscribe()
+    }
+
+    init().catch(() => {
+      if (!cancelled) setSyncErr('Could not load data')
+    }).finally(() => {
+      if (!cancelled && !hasLoadedRef.current) setLoading(false)
+    })
 
     return () => {
-      supabase.removeChannel(channel)
+      cancelled = true
+      if (channel) supabase.removeChannel(channel)
     }
   }, [])
 
-  // Simple retry helper for reliability
   async function saveWithRetry(fn: () => Promise<void>, attempts = 3) {
-    let lastErr: any
+    let lastErr: unknown
     for (let i = 0; i < attempts; i++) {
       try {
         await fn()
@@ -77,27 +83,27 @@ export function useSupabaseStorage() {
     throw lastErr
   }
 
-  // Debounced save to Supabase on every data change
+  // Debounced save to Supabase on every data change (only after initial load)
   const setData = useCallback((update: AppData | ((prev: AppData) => AppData)) => {
-    // Compute next state without calling other setters inside the updater
     let nextData: AppData | null = null
     setDataState(prev => {
       nextData = typeof update === 'function' ? update(prev) : update
       return nextData
     })
-    // Schedule side effects outside the updater function
     setSyncErr(null)
+    if (!hasLoadedRef.current) return
     if (saveTimer.current) clearTimeout(saveTimer.current)
     saveTimer.current = setTimeout(async () => {
-      if (nextData) {
-        setSyncing(true)
-        try {
-          await saveWithRetry(() => saveAppData(nextData!))
-        } catch {
-          setSyncErr('Could not save to Supabase — changes kept locally until next successful sync')
-        } finally {
-          setSyncing(false)
-        }
+      if (!nextData || !hasLoadedRef.current) return
+      setSyncing(true)
+      isSavingRef.current = true
+      try {
+        await saveWithRetry(() => saveAppData(nextData!))
+      } catch {
+        setSyncErr('Could not save to Supabase — changes kept locally until next successful sync')
+      } finally {
+        isSavingRef.current = false
+        setSyncing(false)
       }
     }, 800)
   }, [])
@@ -128,13 +134,16 @@ export function useSupabaseStorage() {
   }, [setData])
 
   const syncNow = useCallback(async () => {
+    if (!hasLoadedRef.current) return
     setSyncErr(null)
     setSyncing(true)
+    isSavingRef.current = true
     try {
       await saveWithRetry(() => saveAppData(data))
     } catch {
       setSyncErr('Sync failed. Changes will retry automatically.')
     } finally {
+      isSavingRef.current = false
       setSyncing(false)
     }
   }, [data])
