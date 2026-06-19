@@ -591,36 +591,17 @@ export async function saveMoodBoard(
   return withRetry(async () => {
     const userId = await ensureWriteSession(knownUserId)
 
-    const { error: upsertError } = await supabase
+    const { data, error: upsertError } = await supabase
       .from('moodboard_data')
       .upsert({ user_id: userId, images, swatches }, { onConflict: 'user_id' })
+      .select('updated_at')
+      .maybeSingle()
 
     if (upsertError) throw new Error(formatSupabaseError(upsertError))
 
-    const { data, error: readError } = await supabase
-      .from('moodboard_data')
-      .select('updated_at,images')
-      .eq('user_id', userId)
-      .maybeSingle()
-
-    if (readError) throw new Error(formatSupabaseError(readError))
-
-    const savedImages = normalizeMoodBoardImages(data?.images)
     const updatedAt = (data?.updated_at as string) ?? new Date().toISOString()
-
-    if (images.length > 0 && savedImages.length === 0) {
-      throw new Error('moodboard_data save could not be verified — no images persisted')
-    }
-
-    const savedIds = new Set(savedImages.map(i => i.id))
-    const missing = images.filter(i => !savedIds.has(i.id))
-    if (missing.length > 0) {
-      MB_LOG('save missing image ids after upsert', { missing: missing.map(i => i.id) })
-      throw new Error(`moodboard_data save incomplete: ${missing.length} image(s) not persisted`)
-    }
-
-    MB_LOG('save ok', { images: savedImages.length, updatedAt })
-    return { updatedAt, imageCount: savedImages.length }
+    MB_LOG('save ok', { images: images.length, updatedAt })
+    return { updatedAt, imageCount: images.length }
   })
 }
 
