@@ -503,7 +503,7 @@ export function MoodBoard({ data }: Props) {
               gap: 20,
             }}>
               {filtered.map(img => (
-                <ImageCard key={`${img.id}-${refreshKey}`} img={img}
+                <ImageCard key={img.id} img={img}
                   onEdit={setEditImage} onDelete={deleteImage} refreshKey={refreshKey}/>
               ))}
             </div>

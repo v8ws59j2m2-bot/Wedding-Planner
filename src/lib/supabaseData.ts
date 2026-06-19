@@ -306,6 +306,57 @@ function mapMoodBoardRow(row: Record<string, unknown>): MoodBoardData {
   }
 }
 
+function moodBoardTime(updatedAt: string | null): number {
+  return updatedAt ? new Date(updatedAt).getTime() : 0
+}
+
+/** Union-merge images by id; newer snapshot wins conflicts unless local edits are pending. */
+export function mergeMoodBoardData(
+  local: MoodBoardData,
+  remote: MoodBoardData,
+  hasPendingLocalChanges: boolean,
+): MoodBoardData {
+  const remoteTime = moodBoardTime(remote.updatedAt)
+  const localTime = moodBoardTime(local.updatedAt)
+  const remoteIsNewer = remoteTime > localTime
+
+  // Remote is authoritative when newer and nothing is waiting to save
+  if (remoteIsNewer && !hasPendingLocalChanges) {
+    return {
+      images: remote.images,
+      swatches: remote.swatches.length > 0 ? remote.swatches : local.swatches,
+      updatedAt: remote.updatedAt,
+    }
+  }
+
+  const byId = new Map<string, MoodBoardImage>()
+  for (const img of remote.images) byId.set(img.id, img)
+  for (const img of local.images) {
+    if (!byId.has(img.id) || hasPendingLocalChanges) byId.set(img.id, img)
+  }
+
+  const seen = new Set<string>()
+  const images: MoodBoardImage[] = []
+  for (const img of local.images) {
+    const merged = byId.get(img.id)
+    if (merged) {
+      images.push(merged)
+      seen.add(img.id)
+    }
+  }
+  for (const img of remote.images) {
+    if (!seen.has(img.id)) {
+      images.push(byId.get(img.id)!)
+      seen.add(img.id)
+    }
+  }
+
+  const swatches = remote.swatches.length > 0 ? remote.swatches : local.swatches
+  const updatedAt = remoteTime >= localTime ? remote.updatedAt : local.updatedAt
+
+  return { images, swatches, updatedAt }
+}
+
 export async function loadMoodBoard(): Promise<MoodBoardData> {
   const userId = await getUserId()
   if (!userId) throw new Error('Not authenticated')
@@ -317,18 +368,48 @@ export async function loadMoodBoard(): Promise<MoodBoardData> {
     .maybeSingle()
 
   if (error) throw error
-  if (!data) return { images: [], swatches: [], updatedAt: null }
 
-  return mapMoodBoardRow(data)
+  const hasMoodBoardImages = Array.isArray(data?.images) && data.images.length > 0
+  if (data && (hasMoodBoardImages || (Array.isArray(data.swatches) && data.swatches.length > 0))) {
+    return mapMoodBoardRow(data)
+  }
+
+  // Fallback: images may still live in legacy app_data.mood_images
+  const { data: appRow, error: appErr } = await supabase
+    .from('app_data')
+    .select('mood_images')
+    .eq('user_id', userId)
+    .maybeSingle()
+
+  if (appErr) throw appErr
+
+  const legacyImages = (appRow?.mood_images as MoodBoardImage[]) ?? []
+  if (legacyImages.length > 0) {
+    MB_LOG('using legacy mood_images from app_data', { count: legacyImages.length })
+    const migrated = { images: legacyImages, swatches: (data?.swatches as MoodBoardSwatch[]) ?? [] }
+    try {
+      const updatedAt = await saveMoodBoard(migrated)
+      return { ...migrated, updatedAt }
+    } catch (err) {
+      MB_LOG('legacy migration save failed', err)
+      return { ...migrated, updatedAt: null }
+    }
+  }
+
+  if (data) return mapMoodBoardRow(data)
+  return { images: [], swatches: [], updatedAt: null }
 }
 
-export async function saveMoodBoard(board: Omit<MoodBoardData, 'updatedAt'>): Promise<void> {
+export async function saveMoodBoard(board: Omit<MoodBoardData, 'updatedAt'>): Promise<string | null> {
   const userId = await getUserId()
-  if (!userId) return
-  await withRetry(async () => {
-    const { error } = await supabase.from('moodboard_data')
+  if (!userId) return null
+  return withRetry(async () => {
+    const { data, error } = await supabase.from('moodboard_data')
       .upsert({ user_id: userId, images: board.images, swatches: board.swatches }, { onConflict: 'user_id' })
+      .select('updated_at')
+      .single()
     if (error) throw error
+    return (data?.updated_at as string) ?? null
   })
 }
 

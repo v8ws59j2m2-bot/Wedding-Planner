@@ -69,12 +69,14 @@ export function PlanningPage({ data, setData, initialTab = 'events' }: Props) {
         })}
       </div>
 
-      {/* Tab content */}
+      {/* Tab content — keep Mood Board mounted so sync state survives tab switches */}
       <div>
         {tab === 'events'    && <Events    data={data} setData={setData}/>}
         {tab === 'itinerary' && <Itinerary data={data}/>}
         {tab === 'checklist' && <Checklist data={data} setData={setData}/>}
-        {tab === 'moodboard' && <MoodBoard data={data} setData={setData}/>}
+        <div style={{ display: tab === 'moodboard' ? 'block' : 'none' }}>
+          <MoodBoard data={data} setData={setData}/>
+        </div>
       </div>
     </div>
   )
