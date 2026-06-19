@@ -4,7 +4,9 @@ import {
   Palette, Image as ImageIcon, Grid3X3, Filter,
 } from 'lucide-react'
 import { SmallLeaf, Frangipani, BaliBorder } from '../components/Botanicals'
+import { FilePreviewModal } from '../components/FilePreviewModal'
 import { uid } from '../lib/helpers'
+import { openMoodBoardFile } from '../lib/moodBoardFiles'
 import { uploadMoodImage, type MoodBoardImage, type MoodBoardSwatch } from '../lib/supabaseData'
 import { supabase } from '../lib/supabase'
 import { useMoodBoardContext } from '../context/MoodBoardContext'
@@ -113,8 +115,12 @@ function SwatchModal({ initial, onSave, onClose }: {
 }
 
 // ── Image card ────────────────────────────────────────────────────────────────
-function ImageCard({ img, onEdit, onDelete, refreshKey = 0 }: {
-  img: MoodBoardImage; onEdit: (i: MoodBoardImage) => void; onDelete: (id: string) => void; refreshKey?: number
+function ImageCard({ img, onOpen, onEdit, onDelete, refreshKey = 0 }: {
+  img: MoodBoardImage
+  onOpen: (i: MoodBoardImage) => void
+  onEdit: (i: MoodBoardImage) => void
+  onDelete: (id: string) => void
+  refreshKey?: number
 }) {
   const [hover, setHover] = useState(false)
   const [loadError, setLoadError] = useState(false)
@@ -146,6 +152,7 @@ function ImageCard({ img, onEdit, onDelete, refreshKey = 0 }: {
 
   return (
     <div
+      onClick={() => onOpen(img)}
       onMouseEnter={() => setHover(true)}
       onMouseLeave={() => setHover(false)}
       style={{
@@ -397,6 +404,7 @@ export function MoodBoard({ data }: Props) {
   const [activeCategory, setActiveCategory] = useState<string>('All')
   const [search, setSearch]                 = useState('')
   const [editImage, setEditImage]           = useState<MoodBoardImage | null>(null)
+  const [previewImage, setPreviewImage]     = useState<MoodBoardImage | null>(null)
   const [swatchModal, setSwatchModal]       = useState<'new' | MoodBoardSwatch | null>(null)
   const [activeTab, setActiveTab]           = useState<'images' | 'palette'>('images')
 
@@ -420,6 +428,10 @@ export function MoodBoard({ data }: Props) {
   }, [images])
 
   const catsWithImages = ['All', ...CATEGORIES.filter(c => (catCounts[c] ?? 0) > 0)]
+
+  const handleOpenItem = (img: MoodBoardImage) => {
+    openMoodBoardFile(img.src, { onImagePreview: () => setPreviewImage(img) })
+  }
 
   if (loading) {
     return (
@@ -536,7 +548,7 @@ export function MoodBoard({ data }: Props) {
             }}>
               {filtered.map(img => (
                 <ImageCard key={img.id} img={img}
-                  onEdit={setEditImage} onDelete={deleteImage} refreshKey={refreshKey}/>
+                  onOpen={handleOpenItem} onEdit={setEditImage} onDelete={deleteImage} refreshKey={refreshKey}/>
               ))}
             </div>
           )}
@@ -668,6 +680,15 @@ export function MoodBoard({ data }: Props) {
       </div>
 
       {/* ── Modals ── */}
+      {previewImage && (
+        <FilePreviewModal
+          src={getDisplaySrc(previewImage.src, refreshKey)}
+          caption={previewImage.caption}
+          category={previewImage.category}
+          notes={previewImage.notes}
+          onClose={() => setPreviewImage(null)}
+        />
+      )}
       {editImage && (
         <ImageModal initial={editImage} onSave={saveImage} onClose={() => setEditImage(null)}/>
       )}
