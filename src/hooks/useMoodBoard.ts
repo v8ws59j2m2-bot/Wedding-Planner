@@ -15,6 +15,8 @@ const METADATA_SAVE_DEBOUNCE_MS = 600
 const SAVE_ECHO_IGNORE_MS = 1200
 const REFETCH_DEBOUNCE_MS = 400
 const HEALTH_CHECK_MS = 30_000
+const PERSIST_TIMEOUT_MS = 20_000
+const INIT_WAIT_MS = 10_000
 
 const DEFAULT_SWATCHES: MoodBoardSwatch[] = [
   { id: 'sw-1', hex: '#FFF8EE', name: 'Warm Ivory' },
@@ -34,6 +36,38 @@ function withDefaultSwatches(board: MoodBoardData): MoodBoardData {
   }
 }
 
+function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms)
+    promise
+      .then(value => { clearTimeout(timer); resolve(value) })
+      .catch(err => { clearTimeout(timer); reject(err) })
+  })
+}
+
+async function waitForReady(
+  isReady: () => boolean,
+  maxMs: number,
+): Promise<boolean> {
+  const start = Date.now()
+  while (!isReady()) {
+    if (Date.now() - start > maxMs) return false
+    await new Promise(r => setTimeout(r, 100))
+  }
+  return true
+}
+
+async function waitForSession(maxMs = 8000, isCancelled?: () => boolean) {
+  const start = Date.now()
+  while (Date.now() - start < maxMs) {
+    if (isCancelled?.()) throw new Error('cancelled')
+    const { data: { session } } = await supabase.auth.getSession()
+    if (session?.user) return session
+    await new Promise(r => setTimeout(r, 100))
+  }
+  throw new Error('Not authenticated')
+}
+
 export function useMoodBoard() {
   const [board, setBoard] = useState<MoodBoardData>(EMPTY)
   const [loading, setLoading] = useState(true)
@@ -50,6 +84,7 @@ export function useMoodBoard() {
   const serverUpdatedAtRef = useRef<string | null>(null)
   const metadataSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const refetchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const persistChainRef = useRef<Promise<boolean>>(Promise.resolve(true))
   const realtimeRef = useRef<ReturnType<typeof subscribeToMoodBoard> | null>(null)
 
   const bumpRefresh = useCallback(() => {
@@ -61,35 +96,43 @@ export function useMoodBoard() {
     return Date.now() - lastSaveAtRef.current < SAVE_ECHO_IGNORE_MS
   }, [])
 
-  /** Write current board to Supabase immediately — the critical persistence path. */
   const persistBoard = useCallback(async (
     snapshot: Pick<MoodBoardData, 'images' | 'swatches'>,
     reason: string,
   ): Promise<boolean> => {
-    const userId = userIdRef.current
-    if (!userId || !hasLoadedRef.current) {
-      console.log('[moodboard] persist skipped — not ready', { reason })
-      return false
+    const run = async (): Promise<boolean> => {
+      const userId = userIdRef.current
+      if (!userId || !hasLoadedRef.current) {
+        console.log('[moodboard] persist skipped — not ready', { reason })
+        return false
+      }
+
+      isSavingRef.current = true
+      lastSaveAtRef.current = Date.now()
+      console.log('[moodboard] persist start', { reason, images: snapshot.images.length })
+
+      try {
+        const { updatedAt } = await withTimeout(
+          saveMoodBoard(snapshot, userId),
+          PERSIST_TIMEOUT_MS,
+          'saveMoodBoard',
+        )
+        serverUpdatedAtRef.current = updatedAt
+        setSaveError(null)
+        console.log('[moodboard] persist ok', { reason, images: snapshot.images.length, updatedAt })
+        return true
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : 'Could not save mood board'
+        console.error('[moodboard] persist failed', { reason, err })
+        setSaveError(msg)
+        return false
+      } finally {
+        isSavingRef.current = false
+      }
     }
 
-    isSavingRef.current = true
-    lastSaveAtRef.current = Date.now()
-    console.log('[moodboard] persist start', { reason, images: snapshot.images.length })
-
-    try {
-      const { updatedAt } = await saveMoodBoard(snapshot, userId)
-      serverUpdatedAtRef.current = updatedAt
-      setSaveError(null)
-      console.log('[moodboard] persist ok', { reason, images: snapshot.images.length, updatedAt })
-      return true
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Could not save mood board'
-      console.error('[moodboard] persist failed', { reason, err })
-      setSaveError(msg)
-      return false
-    } finally {
-      isSavingRef.current = false
-    }
+    persistChainRef.current = persistChainRef.current.then(run, run)
+    return persistChainRef.current
   }, [])
 
   const flushMetadataSave = useCallback(async () => {
@@ -118,7 +161,6 @@ export function useMoodBoard() {
     const remoteTime = moodBoardTime(remote.updatedAt)
     const localTime = moodBoardTime(serverUpdatedAtRef.current)
 
-    // Ignore stale realtime snapshots that would drop images
     if (
       remote.images.length < boardRef.current.images.length &&
       remoteTime <= localTime &&
@@ -163,23 +205,35 @@ export function useMoodBoard() {
     setBoard(prev => (typeof update === 'function' ? update(prev) : update))
   }, [])
 
-  /** Add images and persist immediately — uploads must survive refresh. */
-  const addImages = useCallback(async (imgs: MoodBoardImage[]) => {
-    if (!imgs.length || !hasLoadedRef.current) return
+  const addImages = useCallback(async (imgs: MoodBoardImage[]): Promise<boolean> => {
+    if (!imgs.length) return true
 
-    const nextImages = [...boardRef.current.images, ...imgs]
-    const nextSwatches = boardRef.current.swatches
-    updateBoardLocal(prev => ({ ...prev, images: nextImages }))
-
-    const ok = await persistBoard({ images: nextImages, swatches: nextSwatches }, 'add-images')
-    if (!ok) {
-      // Revert optimistic UI if DB write failed
-      updateBoardLocal(prev => ({
-        ...prev,
-        images: prev.images.filter(i => !imgs.some(n => n.id === i.id)),
-      }))
+    const ready = await waitForReady(() => hasLoadedRef.current, INIT_WAIT_MS)
+    if (!ready) {
+      setSaveError('Mood board is still loading — please wait and try again')
+      return false
     }
-  }, [persistBoard, updateBoardLocal])
+
+    const prev = boardRef.current
+    const nextImages = [...prev.images, ...imgs]
+    const nextBoard: MoodBoardData = { ...prev, images: nextImages }
+    boardRef.current = nextBoard
+    updateBoardLocal(nextBoard)
+    bumpRefresh()
+
+    const ok = await persistBoard(
+      { images: nextImages, swatches: prev.swatches },
+      'add-images',
+    )
+
+    if (!ok) {
+      boardRef.current = prev
+      updateBoardLocal(prev)
+      bumpRefresh()
+    }
+
+    return ok
+  }, [bumpRefresh, persistBoard, updateBoardLocal])
 
   const saveImage = useCallback((img: MoodBoardImage) => {
     updateBoardLocal(prev => ({
@@ -192,9 +246,15 @@ export function useMoodBoard() {
   const deleteImage = useCallback(async (id: string) => {
     const prev = boardRef.current
     const nextImages = prev.images.filter(i => i.id !== id)
-    updateBoardLocal(b => ({ ...b, images: nextImages }))
+    const nextBoard = { ...prev, images: nextImages }
+    boardRef.current = nextBoard
+    updateBoardLocal(nextBoard)
+
     const ok = await persistBoard({ images: nextImages, swatches: prev.swatches }, 'delete-image')
-    if (!ok) updateBoardLocal(() => prev)
+    if (!ok) {
+      boardRef.current = prev
+      updateBoardLocal(prev)
+    }
   }, [persistBoard, updateBoardLocal])
 
   const saveSwatch = useCallback((s: MoodBoardSwatch) => {
@@ -218,15 +278,14 @@ export function useMoodBoard() {
     scheduleMetadataSave()
   }, [scheduleMetadataSave, updateBoardLocal])
 
-  // Initial load + realtime
   useEffect(() => {
     let cancelled = false
     let unregisterHeartbeat: (() => void) | undefined
 
     async function init() {
-      const { data: { session } } = await supabase.auth.getSession()
-      const user = session?.user
-      if (!user || cancelled) throw new Error('Not authenticated')
+      const session = await waitForSession(8000, () => cancelled)
+      const user = session.user
+      if (!user || cancelled) throw new Error('cancelled')
 
       userIdRef.current = user.id
 
@@ -238,6 +297,7 @@ export function useMoodBoard() {
       if (cancelled) return
 
       const initial = withDefaultSwatches(loaded)
+      boardRef.current = initial
       setBoard(initial)
       serverUpdatedAtRef.current = loaded.updatedAt
       hasLoadedRef.current = true
@@ -257,11 +317,10 @@ export function useMoodBoard() {
     }
 
     init().catch(err => {
+      if (cancelled || (err instanceof Error && err.message === 'cancelled')) return
       console.error('[moodboard] init failed', err)
-      if (!cancelled) {
-        setSaveError('Could not load mood board from Supabase')
-        setLoading(false)
-      }
+      setSaveError('Could not load mood board from Supabase')
+      setLoading(false)
     })
 
     return () => {
@@ -275,7 +334,6 @@ export function useMoodBoard() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  // Flush pending metadata saves before page unload
   useEffect(() => {
     const onPageHide = () => { void flushMetadataSave() }
     window.addEventListener('pagehide', onPageHide)

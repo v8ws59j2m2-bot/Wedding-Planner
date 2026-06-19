@@ -290,7 +290,7 @@ function ImageModal({ initial, onSave, onClose }: {
 }
 
 // ── Upload drop zone ───────────────────────────────────────────────────────────
-function DropZone({ category, onAdd }: { category: string; onAdd: (imgs: MoodBoardImage[]) => Promise<void> }) {
+function DropZone({ category, onAdd }: { category: string; onAdd: (imgs: MoodBoardImage[]) => Promise<boolean> }) {
   const [drag, setDrag] = useState(false)
   const [loading, setLoading] = useState(false)
   const [progress, setProgress] = useState(0)
@@ -300,33 +300,49 @@ function DropZone({ category, onAdd }: { category: string; onAdd: (imgs: MoodBoa
     if (!files?.length) return
     setLoading(true)
     setProgress(0)
-    const valid = Array.from(files).filter(f => f.type.startsWith('image/'))
 
-    const results: MoodBoardImage[] = []
-    for (let i = 0; i < valid.length; i++) {
-      const f = valid[i]
-      try {
-        const { data: { session } } = await supabase.auth.getSession()
-        if (!session?.user) throw new Error('Login required')
-        const url = await uploadMoodImage(f)
-        results.push({
-          id: uid(),
-          src: url,
-          caption: f.name.replace(/\.[^.]+$/, '').replace(/[-_]/g, ' '),
-          category,
-          notes: '',
-        })
-      } catch (err) {
-        console.error('[moodboard] upload failed', f.name, err)
-        alert(`Could not upload "${f.name}". Please check your connection and try again.`)
+    try {
+      const valid = Array.from(files).filter(f => f.type.startsWith('image/'))
+      if (!valid.length) {
+        alert('Please choose a JPG, PNG, or WEBP image.')
+        return
       }
-      setProgress(Math.round(((i + 1) / valid.length) * 100))
-    }
 
-    if (results.length) await onAdd(results)
-    if (inputRef.current) inputRef.current.value = ''
-    setLoading(false)
-    setProgress(0)
+      const results: MoodBoardImage[] = []
+      for (let i = 0; i < valid.length; i++) {
+        const f = valid[i]
+        try {
+          const { data: { session } } = await supabase.auth.getSession()
+          if (!session?.user) throw new Error('Login required')
+          const url = await uploadMoodImage(f)
+          results.push({
+            id: uid(),
+            src: url,
+            caption: f.name.replace(/\.[^.]+$/, '').replace(/[-_]/g, ' '),
+            category,
+            notes: '',
+          })
+        } catch (err) {
+          console.error('[moodboard] upload failed', f.name, err)
+          alert(`Could not upload "${f.name}". Please check your connection and try again.`)
+        }
+        setProgress(Math.round(((i + 1) / valid.length) * 100))
+      }
+
+      if (results.length) {
+        const saved = await onAdd(results)
+        if (!saved) {
+          alert('Image uploaded but could not be saved to your mood board. Please try again.')
+        }
+      }
+    } catch (err) {
+      console.error('[moodboard] upload process failed', err)
+      alert('Upload failed. Please try again.')
+    } finally {
+      if (inputRef.current) inputRef.current.value = ''
+      setLoading(false)
+      setProgress(0)
+    }
   }
 
   return (

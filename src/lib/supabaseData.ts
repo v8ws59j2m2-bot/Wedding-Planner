@@ -549,37 +549,24 @@ export async function saveMoodBoard(
   const swatches = normalizeMoodBoardSwatches(board.swatches)
 
   return withRetry(async () => {
-    const { data: existing, error: fetchErr } = await supabase
+    const { data, error } = await supabase
       .from('moodboard_data')
-      .select('user_id')
-      .eq('user_id', userId)
-      .maybeSingle()
-
-    if (fetchErr) throw fetchErr
-
-    const write = existing
-      ? supabase.from('moodboard_data')
-          .update({ images, swatches })
-          .eq('user_id', userId)
-      : supabase.from('moodboard_data')
-          .insert({ user_id: userId, images, swatches })
-
-    const { data, error } = await write
+      .upsert({ user_id: userId, images, swatches }, { onConflict: 'user_id' })
       .select('updated_at,images')
       .single()
 
     if (error) throw error
-    if (!data) throw new Error('moodboard_data save returned no row')
+    if (!data?.updated_at) throw new Error('moodboard_data save returned no row')
 
     const savedImages = normalizeMoodBoardImages(data.images)
-    if (savedImages.length !== images.length) {
+    if (savedImages.length < images.length) {
       throw new Error(
-        `moodboard_data verification failed: wrote ${images.length} images, read back ${savedImages.length}`,
+        `moodboard_data save incomplete: expected ${images.length} images, got ${savedImages.length}`,
       )
     }
 
     const updatedAt = data.updated_at as string
-    MB_LOG('save verified', { images: savedImages.length, updatedAt })
+    MB_LOG('save ok', { images: savedImages.length, updatedAt })
     return { updatedAt, imageCount: savedImages.length }
   })
 }
