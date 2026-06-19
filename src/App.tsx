@@ -11,7 +11,7 @@ import { PlanningPage } from './pages/PlanningPage'
 import { Settings } from './pages/Settings'
 import { AnimatedBackground } from './components/AnimatedBackground'
 import { useSupabaseStorage } from './hooks/useSupabaseStorage'
-import { MoodBoardProvider } from './context/MoodBoardContext'
+
 import { useIsMobile } from './hooks/useIsMobile'
 import { countOverduePayments } from './lib/helpers'
 import { useTour, TourOverlay, TourCtx } from './components/GuidedTour'
@@ -148,7 +148,6 @@ export default function App() {
   }
 
   return (
-    <MoodBoardProvider>
     <TourCtx.Provider value={{ startTour }}>
     <div style={{ display: 'flex', minHeight: '100vh', position: 'relative' }}>
       <AnimatedBackground/>
@@ -225,6 +224,5 @@ export default function App() {
       />
     </div>
     </TourCtx.Provider>
-    </MoodBoardProvider>
   )
 }

@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client'
 import './index.css'
 import App from './App.tsx'
 import { CurrencyProvider } from './context/CurrencyContext'
+import { MoodBoardProvider } from './context/MoodBoardContext'
 import { ErrorBoundary } from './components/ErrorBoundary.tsx'
 import { AuthScreen } from './components/AuthScreen.tsx'
 import { MigratePage } from './pages/MigratePage.tsx'
@@ -66,7 +67,9 @@ function Root() {
   return (
     <ErrorBoundary>
       <CurrencyProvider>
-        <App/>
+        <MoodBoardProvider>
+          <App/>
+        </MoodBoardProvider>
       </CurrencyProvider>
     </ErrorBoundary>
   )

@@ -290,7 +290,7 @@ function ImageModal({ initial, onSave, onClose }: {
 }
 
 // ── Upload drop zone ───────────────────────────────────────────────────────────
-function DropZone({ category, onAdd }: { category: string; onAdd: (imgs: MoodBoardImage[]) => void }) {
+function DropZone({ category, onAdd }: { category: string; onAdd: (imgs: MoodBoardImage[]) => Promise<void> }) {
   const [drag, setDrag] = useState(false)
   const [loading, setLoading] = useState(false)
   const [progress, setProgress] = useState(0)
@@ -306,8 +306,8 @@ function DropZone({ category, onAdd }: { category: string; onAdd: (imgs: MoodBoa
     for (let i = 0; i < valid.length; i++) {
       const f = valid[i]
       try {
-        const { data: { user } } = await supabase.auth.getUser()
-        if (!user) throw new Error('Login required')
+        const { data: { session } } = await supabase.auth.getSession()
+        if (!session?.user) throw new Error('Login required')
         const url = await uploadMoodImage(f)
         results.push({
           id: uid(),
@@ -323,7 +323,7 @@ function DropZone({ category, onAdd }: { category: string; onAdd: (imgs: MoodBoa
       setProgress(Math.round(((i + 1) / valid.length) * 100))
     }
 
-    if (results.length) onAdd(results)
+    if (results.length) await onAdd(results)
     if (inputRef.current) inputRef.current.value = ''
     setLoading(false)
     setProgress(0)
@@ -372,7 +372,7 @@ function DropZone({ category, onAdd }: { category: string; onAdd: (imgs: MoodBoa
 interface Props { data: AppData; setData: (d: AppData | ((p: AppData) => AppData)) => void }
 
 export function MoodBoard({ data }: Props) {
-  const { board, loading, refreshKey, addImages, saveImage, deleteImage, saveSwatch, deleteSwatch } = useMoodBoardContext()
+  const { board, loading, refreshKey, saveError, addImages, saveImage, deleteImage, saveSwatch, deleteSwatch } = useMoodBoardContext()
   const [activeCategory, setActiveCategory] = useState<string>('All')
   const [search, setSearch]                 = useState('')
   const [editImage, setEditImage]           = useState<MoodBoardImage | null>(null)
@@ -424,6 +424,11 @@ export function MoodBoard({ data }: Props) {
           <p style={{ fontSize: 13, color: '#7A6657' }}>
             {images.length} image{images.length !== 1 ? 's' : ''} · {swatches.length} colour{swatches.length !== 1 ? 's' : ''}
           </p>
+          {saveError && (
+            <p style={{ fontSize: 12, color: '#C47A52', marginTop: 6 }}>
+              Save error: {saveError}
+            </p>
+          )}
         </div>
       </div>
 

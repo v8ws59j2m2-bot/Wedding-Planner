@@ -25,8 +25,17 @@ export const DEFAULT_WEDDING_DETAILS: WeddingDetails = {
 }
 
 async function getUserId(): Promise<string | null> {
+  const { data: { session } } = await supabase.auth.getSession()
+  if (session?.user?.id) return session.user.id
   const { data: { user } } = await supabase.auth.getUser()
   return user?.id ?? null
+}
+
+/** Throws if not authenticated — used for writes that must not fail silently. */
+async function requireUserId(): Promise<string> {
+  const userId = await getUserId()
+  if (!userId) throw new Error('Not authenticated')
+  return userId
 }
 
 // Simple retry with backoff for reliable saves
@@ -469,7 +478,7 @@ async function migrateLegacyMoodImages(
   MB_LOG('migrating legacy mood_images to moodboard_data', { count: legacyImages.length })
   const migrated = { images: legacyImages, swatches }
   try {
-    const updatedAt = await saveMoodBoard(migrated)
+    const { updatedAt } = await saveMoodBoard(migrated, userId)
     await clearLegacyMoodImages(userId)
     return { ...migrated, updatedAt }
   } catch (err) {
@@ -489,10 +498,12 @@ export async function clearLegacyMoodImages(userId?: string): Promise<void> {
   if (error) MB_LOG('clear legacy mood_images failed', error)
 }
 
-export async function loadMoodBoard(options: LoadMoodBoardOptions = {}): Promise<MoodBoardData> {
+export async function loadMoodBoard(
+  options: LoadMoodBoardOptions = {},
+  knownUserId?: string,
+): Promise<MoodBoardData> {
   const { allowLegacyMigration = false } = options
-  const userId = await getUserId()
-  if (!userId) throw new Error('Not authenticated')
+  const userId = knownUserId ?? await requireUserId()
 
   const { data, error } = await supabase
     .from('moodboard_data')
@@ -503,9 +514,12 @@ export async function loadMoodBoard(options: LoadMoodBoardOptions = {}): Promise
   if (error) throw error
 
   const mapped = data ? mapMoodBoardRow(data) : { images: [], swatches: [], updatedAt: null }
-  if (mapped.images.length > 0 || mapped.swatches.length > 0) {
-    return mapped
-  }
+
+  // Always return DB row when it has images (canonical source)
+  if (mapped.images.length > 0) return mapped
+
+  // Row exists with only swatches — still canonical
+  if (data && mapped.swatches.length > 0) return mapped
 
   if (!allowLegacyMigration) return mapped
 
@@ -517,18 +531,56 @@ export async function loadMoodBoard(options: LoadMoodBoardOptions = {}): Promise
   return mapped
 }
 
-export async function saveMoodBoard(board: Omit<MoodBoardData, 'updatedAt'>): Promise<string | null> {
-  const userId = await getUserId()
-  if (!userId) return null
+export type SaveMoodBoardResult = {
+  updatedAt: string
+  imageCount: number
+}
+
+/**
+ * Persist mood board metadata to moodboard_data.
+ * Uses explicit insert/update (not blind upsert) and verifies the write.
+ */
+export async function saveMoodBoard(
+  board: Omit<MoodBoardData, 'updatedAt'>,
+  knownUserId?: string,
+): Promise<SaveMoodBoardResult> {
+  const userId = knownUserId ?? await requireUserId()
   const images = normalizeMoodBoardImages(board.images)
   const swatches = normalizeMoodBoardSwatches(board.swatches)
+
   return withRetry(async () => {
-    const { data, error } = await supabase.from('moodboard_data')
-      .upsert({ user_id: userId, images, swatches }, { onConflict: 'user_id' })
-      .select('updated_at')
+    const { data: existing, error: fetchErr } = await supabase
+      .from('moodboard_data')
+      .select('user_id')
+      .eq('user_id', userId)
+      .maybeSingle()
+
+    if (fetchErr) throw fetchErr
+
+    const write = existing
+      ? supabase.from('moodboard_data')
+          .update({ images, swatches })
+          .eq('user_id', userId)
+      : supabase.from('moodboard_data')
+          .insert({ user_id: userId, images, swatches })
+
+    const { data, error } = await write
+      .select('updated_at,images')
       .single()
+
     if (error) throw error
-    return (data?.updated_at as string) ?? null
+    if (!data) throw new Error('moodboard_data save returned no row')
+
+    const savedImages = normalizeMoodBoardImages(data.images)
+    if (savedImages.length !== images.length) {
+      throw new Error(
+        `moodboard_data verification failed: wrote ${images.length} images, read back ${savedImages.length}`,
+      )
+    }
+
+    const updatedAt = data.updated_at as string
+    MB_LOG('save verified', { images: savedImages.length, updatedAt })
+    return { updatedAt, imageCount: savedImages.length }
   })
 }
 
@@ -624,8 +676,7 @@ export function subscribeToMoodBoard(
 
 // Upload image to Supabase Storage (bucket 'moodboard' must exist and have policies for authenticated users)
 export async function uploadMoodImage(file: File): Promise<string> {
-  const userId = await getUserId()
-  if (!userId) throw new Error('Login required to upload images')
+  const userId = await requireUserId()
   const fileExt = file.name.split('.').pop() || 'jpg'
   const filePath = `${userId}/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${fileExt}`
   const { error } = await supabase.storage
