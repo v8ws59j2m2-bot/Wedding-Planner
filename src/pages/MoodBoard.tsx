@@ -376,15 +376,6 @@ export function MoodBoard({ data }: Props) {
   const images   = board.images
   const swatches = board.swatches
 
-  if (loading) {
-    return (
-      <div className="page-content" style={{ maxWidth: 1100, textAlign: 'center', padding: 80 }}>
-        <p style={{ color: '#C8A45D', fontSize: 13 }}>Loading mood board…</p>
-      </div>
-    )
-  }
-
-  // Filter images
   const filtered = useMemo(() => {
     let list = images
     if (activeCategory !== 'All') list = list.filter(i => i.category === activeCategory)
@@ -395,7 +386,6 @@ export function MoodBoard({ data }: Props) {
     return list
   }, [images, activeCategory, search])
 
-  // Category counts
   const catCounts = useMemo(() => {
     const map: Record<string, number> = { All: images.length }
     images.forEach(i => { map[i.category] = (map[i.category] ?? 0) + 1 })
@@ -403,6 +393,14 @@ export function MoodBoard({ data }: Props) {
   }, [images])
 
   const catsWithImages = ['All', ...CATEGORIES.filter(c => (catCounts[c] ?? 0) > 0)]
+
+  if (loading) {
+    return (
+      <div className="page-content" style={{ maxWidth: 1100, textAlign: 'center', padding: 80 }}>
+        <p style={{ color: '#C8A45D', fontSize: 13 }}>Loading mood board…</p>
+      </div>
+    )
+  }
 
   return (
     <div className="page-content" style={{maxWidth: 1100}}>
