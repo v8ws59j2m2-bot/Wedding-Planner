@@ -49,9 +49,7 @@ function formatSupabaseError(error: { message?: string; code?: string; details?:
  * Ensure a valid JWT is attached before DB writes (mobile uploads can outlast token lifetime).
  * Returns the authenticated user id from the live session.
  */
-// TEMPORARY DEBUG — remove alert() calls after diagnosing slow saves on mobile
 async function ensureWriteSession(knownUserId?: string): Promise<string> {
-  const t0 = Date.now()
   const { data: { session: cached } } = await supabase.auth.getSession()
   const expiresAt = cached?.expires_at ?? 0
   const nowSec = Math.floor(Date.now() / 1000)
@@ -65,13 +63,11 @@ async function ensureWriteSession(knownUserId?: string): Promise<string> {
       if (knownUserId && user.id !== knownUserId) {
         console.log('[moodboard] session user differs from cached ref', { knownUserId, sessionUserId: user.id })
       }
-      alert(`[debug] ensureWriteSession: ${Date.now() - t0} ms (getUser-fallback)`)
       return user.id
     }
     if (refreshed.session.access_token) {
       await supabase.realtime.setAuth(refreshed.session.access_token)
     }
-    alert(`[debug] ensureWriteSession: ${Date.now() - t0} ms (refresh)`)
     return refreshed.session.user.id
   }
 
@@ -79,7 +75,6 @@ async function ensureWriteSession(knownUserId?: string): Promise<string> {
   if (knownUserId && userId !== knownUserId) {
     console.log('[moodboard] session user differs from cached ref', { knownUserId, sessionUserId: userId })
   }
-  alert(`[debug] ensureWriteSession: ${Date.now() - t0} ms (cached)`)
   return userId
 }
 
@@ -359,12 +354,21 @@ export type LoadMoodBoardOptions = {
 
 function normalizeMoodBoardImages(raw: unknown): MoodBoardImage[] {
   if (!Array.isArray(raw)) return []
-  return raw.filter((item): item is MoodBoardImage => {
-    if (!item || typeof item !== 'object') return false
+  const slim: MoodBoardImage[] = []
+  for (const item of raw) {
+    if (!item || typeof item !== 'object') continue
     const img = item as MoodBoardImage
-    return typeof img.id === 'string' && img.id.length > 0
-      && typeof img.src === 'string' && img.src.length > 0
-  })
+    if (typeof img.id !== 'string' || !img.id || typeof img.src !== 'string' || !img.src) continue
+    if (img.src.startsWith('data:')) continue // never persist base64 blobs
+    slim.push({
+      id: img.id,
+      src: img.src,
+      caption: typeof img.caption === 'string' ? img.caption : '',
+      category: typeof img.category === 'string' ? img.category : '',
+      notes: typeof img.notes === 'string' ? img.notes : '',
+    })
+  }
+  return slim
 }
 
 function normalizeMoodBoardSwatches(raw: unknown): MoodBoardSwatch[] {
@@ -581,6 +585,48 @@ export type SaveMoodBoardResult = {
   imageCount: number
 }
 
+const MOODBOARD_MAX_PAYLOAD_BYTES = 5 * 1024 * 1024
+const MOODBOARD_MAX_IMAGES = 50
+const MOODBOARD_IMAGE_WARN = 40
+
+function estimateMoodBoardPayloadBytes(
+  images: MoodBoardImage[],
+  swatches: MoodBoardSwatch[],
+): number {
+  return new TextEncoder().encode(JSON.stringify({ images, swatches })).length
+}
+
+function assertMoodBoardPayloadWithinLimits(
+  images: MoodBoardImage[],
+  swatches: MoodBoardSwatch[],
+): void {
+  const bytes = estimateMoodBoardPayloadBytes(images, swatches)
+  MB_LOG('save payload size', {
+    bytes,
+    kb: Math.round(bytes / 1024),
+    images: images.length,
+    swatches: swatches.length,
+  })
+
+  if (images.length > MOODBOARD_MAX_IMAGES) {
+    throw new Error(
+      `Mood board has too many images (${images.length}). Maximum is ${MOODBOARD_MAX_IMAGES}.`,
+    )
+  }
+
+  if (bytes > MOODBOARD_MAX_PAYLOAD_BYTES) {
+    const mb = (bytes / (1024 * 1024)).toFixed(1)
+    throw new Error(`Mood board data is too large (${mb} MB). Maximum is 5 MB.`)
+  }
+
+  if (images.length >= MOODBOARD_IMAGE_WARN) {
+    console.warn('[moodboard] approaching image limit', {
+      count: images.length,
+      max: MOODBOARD_MAX_IMAGES,
+    })
+  }
+}
+
 /**
  * Persist mood board metadata to moodboard_data.
  * Refreshes the auth session before writing and always uses the live JWT user id
@@ -590,41 +636,25 @@ export async function saveMoodBoard(
   board: Omit<MoodBoardData, 'updatedAt'>,
   knownUserId?: string,
 ): Promise<SaveMoodBoardResult> {
-  const totalT0 = Date.now()
   const images = normalizeMoodBoardImages(board.images)
   const swatches = normalizeMoodBoardSwatches(board.swatches)
+  assertMoodBoardPayloadWithinLimits(images, swatches)
 
-  // TEMPORARY DEBUG — remove alert() calls after diagnosing slow saves on mobile
-  try {
-    const result = await withRetry(async () => {
-      const sessionT0 = Date.now()
-      const userId = await ensureWriteSession(knownUserId)
-      const sessionMs = Date.now() - sessionT0
-      alert(`[debug] saveMoodBoard ensureWriteSession: ${sessionMs} ms`)
+  return withRetry(async () => {
+    const userId = await ensureWriteSession(knownUserId)
 
-      const upsertT0 = Date.now()
-      const { data, error: upsertError } = await supabase
-        .from('moodboard_data')
-        .upsert({ user_id: userId, images, swatches }, { onConflict: 'user_id' })
-        .select('updated_at')
-        .maybeSingle()
-      const upsertMs = Date.now() - upsertT0
-      alert(`[debug] saveMoodBoard upsert: ${upsertMs} ms (${images.length} images)`)
+    const { data, error: upsertError } = await supabase
+      .from('moodboard_data')
+      .upsert({ user_id: userId, images, swatches }, { onConflict: 'user_id' })
+      .select('updated_at')
+      .maybeSingle()
 
-      if (upsertError) throw new Error(formatSupabaseError(upsertError))
+    if (upsertError) throw new Error(formatSupabaseError(upsertError))
 
-      alert('[debug] saveMoodBoard verification SELECT: skipped (merged into upsert)')
-
-      const updatedAt = (data?.updated_at as string) ?? new Date().toISOString()
-      MB_LOG('save ok', { images: images.length, updatedAt })
-      return { updatedAt, imageCount: images.length }
-    })
-    alert(`[debug] saveMoodBoard total: ${Date.now() - totalT0} ms`)
-    return result
-  } catch (err) {
-    alert(`[debug] saveMoodBoard total: ${Date.now() - totalT0} ms (failed)`)
-    throw err
-  }
+    const updatedAt = (data?.updated_at as string) ?? new Date().toISOString()
+    MB_LOG('save ok', { images: images.length, updatedAt })
+    return { updatedAt, imageCount: images.length }
+  })
 }
 
 export type MoodBoardRealtimeCallbacks = {
