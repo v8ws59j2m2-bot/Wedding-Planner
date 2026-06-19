@@ -1,33 +1,14 @@
-import { useState, useMemo, useRef, useEffect } from 'react'
+import { useState, useMemo, useRef } from 'react'
 import {
   Plus, X, Edit2, Trash2, Search, FileJson, Upload,
   Palette, Image as ImageIcon, Grid3X3, Filter,
 } from 'lucide-react'
 import { SmallLeaf, Frangipani, BaliBorder } from '../components/Botanicals'
 import { uid } from '../lib/helpers'
-import { loadMoodBoard, saveMoodBoard, uploadMoodImage } from '../lib/supabaseData'
+import { uploadMoodImage, type MoodBoardImage, type MoodBoardSwatch } from '../lib/supabaseData'
 import { supabase } from '../lib/supabase'
+import { useMoodBoard } from '../hooks/useMoodBoard'
 import type { AppData } from '../types'
-
-// ── types ─────────────────────────────────────────────────────────────────────
-interface MoodImage {
-  id: string
-  src: string          // base64 or URL
-  caption: string
-  category: string
-  notes?: string
-}
-
-interface ColorSwatch {
-  id: string
-  hex: string
-  name: string
-}
-
-interface MoodBoardData {
-  images: MoodImage[]
-  swatches: ColorSwatch[]
-}
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 function exportJSON(data: AppData) {
@@ -36,15 +17,6 @@ function exportJSON(data: AppData) {
   const a = document.createElement('a'); a.href = url
   a.download = `wedding-data-${new Date().toISOString().split('T')[0]}.json`
   a.click(); URL.revokeObjectURL(url)
-}
-
-function fileToBase64(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader()
-    reader.onload  = () => resolve(reader.result as string)
-    reader.onerror = reject
-    reader.readAsDataURL(file)
-  })
 }
 
 function contrastColor(hex: string) {
@@ -77,18 +49,9 @@ const CAT_ICONS: Record<string, string> = {
   'Hair & Beauty': '💄', 'Stationery': '📜', 'Honeymoon': '🌴',
 }
 
-const STARTER_SWATCHES: ColorSwatch[] = [
-  { id: uid(), hex: '#FFF8EE', name: 'Warm Ivory' },
-  { id: uid(), hex: '#C8A45D', name: 'Soft Gold' },
-  { id: uid(), hex: '#C47A52', name: 'Terracotta' },
-  { id: uid(), hex: '#7F9A78', name: 'Sage Green' },
-  { id: uid(), hex: '#3B2A22', name: 'Deep Cocoa' },
-  { id: uid(), hex: '#F2E3CF', name: 'Sand Beige' },
-]
-
 // ── Swatch editor modal ───────────────────────────────────────────────────────
 function SwatchModal({ initial, onSave, onClose }: {
-  initial?: ColorSwatch; onSave: (s: ColorSwatch) => void; onClose: () => void
+  initial?: MoodBoardSwatch; onSave: (s: MoodBoardSwatch) => void; onClose: () => void
 }) {
   const [hex,  setHex]  = useState(initial?.hex  ?? '#C8A45D')
   const [name, setName] = useState(initial?.name ?? '')
@@ -151,7 +114,7 @@ function SwatchModal({ initial, onSave, onClose }: {
 
 // ── Image card ────────────────────────────────────────────────────────────────
 function ImageCard({ img, onEdit, onDelete, refreshKey = 0 }: {
-  img: MoodImage; onEdit: (i: MoodImage) => void; onDelete: (id: string) => void; refreshKey?: number
+  img: MoodBoardImage; onEdit: (i: MoodBoardImage) => void; onDelete: (id: string) => void; refreshKey?: number
 }) {
   const [hover, setHover] = useState(false)
   const [loadError, setLoadError] = useState(false)
@@ -198,7 +161,6 @@ function ImageCard({ img, onEdit, onDelete, refreshKey = 0 }: {
           alt={img.caption}
           style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
           loading="lazy"
-          crossOrigin="anonymous"
           onError={handleImageError}
           onLoad={handleImageLoad}
         />
@@ -258,7 +220,7 @@ function ImageCard({ img, onEdit, onDelete, refreshKey = 0 }: {
 
 // ── Image edit modal ──────────────────────────────────────────────────────────
 function ImageModal({ initial, onSave, onClose }: {
-  initial?: MoodImage; onSave: (i: MoodImage) => void; onClose: () => void
+  initial?: MoodBoardImage; onSave: (i: MoodBoardImage) => void; onClose: () => void
 }) {
   const [form, setForm] = useState({
     caption:  initial?.caption  ?? '',
@@ -323,7 +285,7 @@ function ImageModal({ initial, onSave, onClose }: {
 }
 
 // ── Upload drop zone ───────────────────────────────────────────────────────────
-function DropZone({ category, onAdd }: { category: string; onAdd: (imgs: MoodImage[]) => void }) {
+function DropZone({ category, onAdd }: { category: string; onAdd: (imgs: MoodBoardImage[]) => void }) {
   const [drag, setDrag] = useState(false)
   const [loading, setLoading] = useState(false)
   const [progress, setProgress] = useState(0)
@@ -335,40 +297,23 @@ function DropZone({ category, onAdd }: { category: string; onAdd: (imgs: MoodIma
     setProgress(0)
     const valid = Array.from(files).filter(f => f.type.startsWith('image/'))
 
-    const results: MoodImage[] = []
+    const results: MoodBoardImage[] = []
     for (let i = 0; i < valid.length; i++) {
       const f = valid[i]
       try {
         const { data: { user } } = await supabase.auth.getUser()
-        if (user) {
-          // Logged in → upload to Supabase Storage, store URL
-          const url = await uploadMoodImage(f)
-          results.push({
-            id: uid(),
-            src: url,
-            caption: f.name.replace(/\.[^.]+$/, '').replace(/[-_]/g, ' '),
-            category,
-            notes: '',
-          })
-        } else {
-          // Non-logged-in → keep base64 for local-first
-          results.push({
-            id: uid(),
-            src: await fileToBase64(f),
-            caption: f.name.replace(/\.[^.]+$/, '').replace(/[-_]/g, ' '),
-            category,
-            notes: '',
-          })
-        }
-      } catch (e) {
-        // Fallback to base64 on any upload error
+        if (!user) throw new Error('Login required')
+        const url = await uploadMoodImage(f)
         results.push({
           id: uid(),
-          src: await fileToBase64(f),
+          src: url,
           caption: f.name.replace(/\.[^.]+$/, '').replace(/[-_]/g, ' '),
           category,
           notes: '',
         })
+      } catch (err) {
+        console.error('[moodboard] upload failed', f.name, err)
+        alert(`Could not upload "${f.name}". Please check your connection and try again.`)
       }
       setProgress(Math.round(((i + 1) / valid.length) * 100))
     }
@@ -420,142 +365,24 @@ function DropZone({ category, onAdd }: { category: string; onAdd: (imgs: MoodIma
 // ── Main page ─────────────────────────────────────────────────────────────────
 interface Props { data: AppData; setData: (d: AppData | ((p: AppData) => AppData)) => void }
 
-// Module-level store — single source of truth, survives all remounts and tab switches
-let _store: MoodBoardData = { images: [], swatches: STARTER_SWATCHES }
-let _loadState: 'pending' | 'loading' | 'done' = 'pending'
-const _listeners = new Set<() => void>()
-let _refreshKey = Date.now()
-
-function notifyListeners() { _listeners.forEach(fn => fn()) }
-
-function bumpRefreshKey() {
-  _refreshKey = Date.now()
-  notifyListeners()
-}
-
-// Load from Supabase once per page session
-async function ensureLoaded() {
-  if (_loadState !== 'pending') return
-  _loadState = 'loading'
-  try {
-    const d = await loadMoodBoard()
-    if (d.images.length > 0 || d.swatches.length > 0) {
-      _store = { images: d.images, swatches: d.swatches.length > 0 ? d.swatches : STARTER_SWATCHES }
-    }
-  } catch { /* keep defaults */ }
-  _loadState = 'done'
-  bumpRefreshKey()
-  notifyListeners()
-}
-
-async function refetchMoodBoard() {
-  try {
-    const d = await loadMoodBoard()
-    _store = {
-      images: d.images,
-      swatches: d.swatches.length > 0 ? d.swatches : STARTER_SWATCHES
-    }
-    bumpRefreshKey()
-    notifyListeners()
-  } catch { /* ignore */ }
-}
-
-// Kick off load immediately when module loads (not waiting for component mount)
-ensureLoaded()
-
-function useMoodBoard(): [MoodBoardData, (d: MoodBoardData) => void, number] {
-  const [, forceRender] = useState(0)
-  const [localRefresh, setLocalRefresh] = useState(_refreshKey)
-
-  useEffect(() => {
-    // Re-render when load completes
-    const listener = () => {
-      forceRender(n => n + 1)
-      setLocalRefresh(_refreshKey)
-    }
-    _listeners.add(listener)
-    return () => { _listeners.delete(listener) }
-  }, [])
-
-  // Strengthen realtime subscription for moodboard_data to sync across devices
-  useEffect(() => {
-    const channel = supabase
-      .channel('moodboard-data-realtime')
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'moodboard_data' },
-        (payload: any) => {
-          if (payload.new) {
-            // On any change (including new images from other devices), refetch fresh data
-            // This ensures latest image list and avoids any payload desync
-            refetchMoodBoard()
-          }
-        }
-      )
-      .subscribe((status) => {
-        if (status === 'SUBSCRIBED') {
-          // Optionally refetch once on successful sub to ensure latest
-          refetchMoodBoard()
-        }
-      })
-
-    return () => {
-      supabase.removeChannel(channel)
-    }
-  }, [])
-
-  // Add focus-based refetch for reliability (catches missed realtime or cache issues)
-  useEffect(() => {
-    const handleFocus = () => {
-      // Refetch to ensure we have latest data and bust any stale image caches
-      refetchMoodBoard()
-    }
-    window.addEventListener('focus', handleFocus)
-    // Also refetch on visibility change (e.g. switching tabs)
-    document.addEventListener('visibilitychange', () => {
-      if (!document.hidden) handleFocus()
-    })
-    return () => {
-      window.removeEventListener('focus', handleFocus)
-      document.removeEventListener('visibilitychange', handleFocus)
-    }
-  }, [])
-
-  const save = (d: MoodBoardData) => {
-    _store = d  // update store immediately — UI reflects it instantly
-    bumpRefreshKey()
-    notifyListeners()
-    saveMoodBoard(d).catch(() => {
-      // Save failed — show quota warning if storage issue, otherwise silent
-      window.dispatchEvent(new CustomEvent('storage-quota-exceeded'))
-    })
-  }
-
-  return [_store, save, localRefresh]
-}
-
 export function MoodBoard({ data }: Props) {
-  const [board, saveBoard, refreshKey] = useMoodBoard()
+  const { board, loading, refreshKey, addImages, saveImage, deleteImage, saveSwatch, deleteSwatch } = useMoodBoard()
   const [activeCategory, setActiveCategory] = useState<string>('All')
   const [search, setSearch]                 = useState('')
-  const [editImage, setEditImage]           = useState<MoodImage | null>(null)
-  const [swatchModal, setSwatchModal]       = useState<'new' | ColorSwatch | null>(null)
+  const [editImage, setEditImage]           = useState<MoodBoardImage | null>(null)
+  const [swatchModal, setSwatchModal]       = useState<'new' | MoodBoardSwatch | null>(null)
   const [activeTab, setActiveTab]           = useState<'images' | 'palette'>('images')
 
   const images   = board.images
   const swatches = board.swatches
 
-  const updateImages  = (imgs: MoodImage[])      => saveBoard({ ...board, images: imgs })
-  const updateSwatches = (sw: ColorSwatch[])     => saveBoard({ ...board, swatches: sw })
-
-  const addImages   = (imgs: MoodImage[])        => updateImages([...images, ...imgs])
-  const saveImage   = (img: MoodImage)           => updateImages(images.map(i => i.id === img.id ? img : i))
-  const deleteImage = (id: string)               => updateImages(images.filter(i => i.id !== id))
-  const saveSwatch  = (s: ColorSwatch)           => {
-    const exists = swatches.find(x => x.id === s.id)
-    updateSwatches(exists ? swatches.map(x => x.id === s.id ? s : x) : [...swatches, s])
+  if (loading) {
+    return (
+      <div className="page-content" style={{ maxWidth: 1100, textAlign: 'center', padding: 80 }}>
+        <p style={{ color: '#C8A45D', fontSize: 13 }}>Loading mood board…</p>
+      </div>
+    )
   }
-  const deleteSwatch = (id: string)              => updateSwatches(swatches.filter(s => s.id !== id))
 
   // Filter images
   const filtered = useMemo(() => {
@@ -816,7 +643,7 @@ export function MoodBoard({ data }: Props) {
       )}
       {swatchModal && (
         <SwatchModal
-          initial={swatchModal === 'new' ? undefined : swatchModal as ColorSwatch}
+          initial={swatchModal === 'new' ? undefined : swatchModal as MoodBoardSwatch}
           onSave={saveSwatch} onClose={() => setSwatchModal(null)}
         />
       )}

@@ -271,16 +271,58 @@ export async function saveTimeline(timeline: any[]): Promise<void> {
 }
 
 // ── Mood Board ────────────────────────────────────────────────────────────────
-export async function loadMoodBoard(): Promise<{ images: any[]; swatches: any[] }> {
-  const userId = await getUserId()
-  if (!userId) return { images: [], swatches: [] }
-  const { data, error } = await supabase
-    .from('moodboard_data').select('images,swatches').eq('user_id', userId).single()
-  if (error || !data) return { images: [], swatches: [] }
-  return { images: data.images ?? [], swatches: data.swatches ?? [] }
+export interface MoodBoardImage {
+  id: string
+  src: string
+  caption: string
+  category: string
+  notes?: string
 }
 
-export async function saveMoodBoard(board: { images: any[]; swatches: any[] }): Promise<void> {
+export interface MoodBoardSwatch {
+  id: string
+  hex: string
+  name: string
+}
+
+export interface MoodBoardData {
+  images: MoodBoardImage[]
+  swatches: MoodBoardSwatch[]
+  updatedAt: string | null
+}
+
+export const MOODBOARD_PULL_EVENT = 'moodboard-pull'
+
+const MB_LOG = (msg: string, detail?: unknown) => {
+  if (detail !== undefined) console.log('[moodboard]', msg, detail)
+  else console.log('[moodboard]', msg)
+}
+
+function mapMoodBoardRow(row: Record<string, unknown>): MoodBoardData {
+  return {
+    images: (row.images as MoodBoardImage[]) ?? [],
+    swatches: (row.swatches as MoodBoardSwatch[]) ?? [],
+    updatedAt: (row.updated_at as string) ?? null,
+  }
+}
+
+export async function loadMoodBoard(): Promise<MoodBoardData> {
+  const userId = await getUserId()
+  if (!userId) throw new Error('Not authenticated')
+
+  const { data, error } = await supabase
+    .from('moodboard_data')
+    .select('images,swatches,updated_at')
+    .eq('user_id', userId)
+    .maybeSingle()
+
+  if (error) throw error
+  if (!data) return { images: [], swatches: [], updatedAt: null }
+
+  return mapMoodBoardRow(data)
+}
+
+export async function saveMoodBoard(board: Omit<MoodBoardData, 'updatedAt'>): Promise<void> {
   const userId = await getUserId()
   if (!userId) return
   await withRetry(async () => {
@@ -288,6 +330,92 @@ export async function saveMoodBoard(board: { images: any[]; swatches: any[] }): 
       .upsert({ user_id: userId, images: board.images, swatches: board.swatches }, { onConflict: 'user_id' })
     if (error) throw error
   })
+}
+
+export type MoodBoardRealtimeCallbacks = {
+  onData: (data: MoodBoardData) => void
+  shouldIgnoreUpdate?: () => boolean
+  onSubscribed?: () => void
+}
+
+export function subscribeToMoodBoard(
+  userId: string,
+  callbacks: MoodBoardRealtimeCallbacks,
+): { reconnect: () => void; destroy: () => void } {
+  let channel: RealtimeChannel | null = null
+  let reconnectAttempt = 0
+  let reconnectTimer: ReturnType<typeof setTimeout> | null = null
+  let destroyed = false
+
+  const removeChannel = () => {
+    if (channel) {
+      MB_LOG('removing channel')
+      supabase.removeChannel(channel)
+      channel = null
+    }
+  }
+
+  const scheduleReconnect = () => {
+    if (destroyed || reconnectTimer) return
+    const delay = Math.min(RECONNECT_BASE_MS * 2 ** reconnectAttempt, RECONNECT_MAX_MS)
+    reconnectAttempt += 1
+    MB_LOG('scheduling reconnect', { attempt: reconnectAttempt - 1, delayMs: delay })
+    reconnectTimer = setTimeout(() => {
+      reconnectTimer = null
+      if (!destroyed) connect()
+    }, delay)
+  }
+
+  const connect = () => {
+    if (destroyed) return
+    removeChannel()
+    MB_LOG('connecting channel', { userId })
+
+    channel = supabase
+      .channel(`moodboard-${userId}`)
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'moodboard_data', filter: `user_id=eq.${userId}` },
+        (payload) => {
+          MB_LOG('realtime event', { event: payload.eventType })
+          if (callbacks.shouldIgnoreUpdate?.()) return
+          if (!payload.new || typeof payload.new !== 'object') return
+          const row = payload.new as Record<string, unknown>
+          if (row.user_id !== userId) return
+          const mapped = mapMoodBoardRow(row)
+          callbacks.onData(mapped)
+          MB_LOG('realtime applied', { images: mapped.images.length })
+        },
+      )
+      .subscribe((status, err) => {
+        MB_LOG('channel status', { status, err: err?.message ?? null })
+        if (status === 'SUBSCRIBED') {
+          reconnectAttempt = 0
+          callbacks.onSubscribed?.()
+        } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') {
+          scheduleReconnect()
+        }
+      })
+  }
+
+  connect()
+
+  return {
+    reconnect: () => {
+      if (destroyed) return
+      reconnectAttempt = 0
+      if (reconnectTimer) {
+        clearTimeout(reconnectTimer)
+        reconnectTimer = null
+      }
+      connect()
+    },
+    destroy: () => {
+      destroyed = true
+      if (reconnectTimer) clearTimeout(reconnectTimer)
+      removeChannel()
+    },
+  }
 }
 
 // Upload image to Supabase Storage (bucket 'moodboard' must exist and have policies for authenticated users)

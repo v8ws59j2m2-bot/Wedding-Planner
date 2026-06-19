@@ -10,6 +10,7 @@ import {
   saveAppData,
   loadWeddingDetails,
   subscribeToAppData,
+  MOODBOARD_PULL_EVENT,
   type ConnectionStatus,
 } from '../lib/supabaseData'
 import { exportAllData, parseImport } from '../services/dataService'
@@ -60,6 +61,7 @@ export function useSupabaseStorage() {
         budget: loaded.budget.length,
         checklist: loaded.checklist.length,
       })
+      window.dispatchEvent(new CustomEvent(MOODBOARD_PULL_EVENT, { detail: { reason } }))
     } catch (err) {
       console.log('[sync] pullLatest failed', { reason, err })
       setSyncErr('Could not refresh from Supabase')
