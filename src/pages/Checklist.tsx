@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import {
   DndContext, closestCenter, PointerSensor, useSensor, useSensors,
   type DragEndEvent,
@@ -17,6 +17,7 @@ import { SmallLeaf, Frangipani, BaliBorder } from '../components/Botanicals'
 import type { ChecklistItem, AppData } from '../types'
 
 import { uid } from '../lib/helpers'
+import { loadTimeline, saveTimeline as persistTimeline } from '../lib/supabaseData'
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 function monthsUntil() {
@@ -555,17 +556,19 @@ export function Checklist({ data, setData }: Props) {
   const [timelineModal, setTimelineModal] = useState<'new' | TimelineEvent | null>(null)
   const [activeTab, setActiveTab]       = useState<'checklist' | 'timeline'>('checklist')
 
-  // Timeline stored in localStorage via a key on data (we piggyback on checklist notes)
-  const [timeline, setTimeline] = useState<TimelineEvent[]>(() => {
-    try {
-      const raw = localStorage.getItem('jb-timeline')
-      return raw ? JSON.parse(raw) : DEFAULT_TIMELINE
-    } catch { return DEFAULT_TIMELINE }
-  })
+  // Timeline loaded from Supabase (no localStorage for authenticated users)
+  const [timeline, setTimeline] = useState<TimelineEvent[]>(DEFAULT_TIMELINE)
+
+  useEffect(() => {
+    loadTimeline().then(tl => {
+      if (tl && tl.length > 0) setTimeline(tl)
+      else setTimeline(DEFAULT_TIMELINE)
+    }).catch(() => setTimeline(DEFAULT_TIMELINE))
+  }, [])
 
   const saveTimeline = (tl: TimelineEvent[]) => {
     setTimeline(tl)
-    localStorage.setItem('jb-timeline', JSON.stringify(tl))
+    persistTimeline(tl).catch(err => console.error('Failed to save timeline to Supabase', err))
   }
 
   const items    = data.checklist

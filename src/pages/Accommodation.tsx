@@ -12,6 +12,7 @@ import { SmallLeaf, Frangipani, BaliBorder } from '../components/Botanicals'
 import { TourButton } from '../components/GuidedTour'
 import { uid } from '../lib/helpers'
 import { loadAccommodation, saveAccommodation } from '../lib/supabaseData'
+import { supabase } from '../lib/supabase'
 import type { AppData, Guest } from '../types'
 
 // ── types ─────────────────────────────────────────────────────────────────────
@@ -34,8 +35,6 @@ interface Room {
 }
 
 interface AccomData { rooms: Room[] }
-
-const STORAGE_KEY = 'jb-accommodation'
 
 function exportJSON(data: AppData, accomData: AccomData) {
   const bundle = { ...data, accommodation: accomData, exportedAt: new Date().toISOString() }
@@ -60,19 +59,41 @@ const EXTRA_BED_EMOJI: Record<ExtraBeddingType, string> = {
 // ── storage ───────────────────────────────────────────────────────────────────
 function useAccom(): [AccomData, (d: AccomData) => void] {
   const [state, setState] = useState<AccomData>({ rooms: [] })
+  const [, setSaveError] = useState<string | null>(null)
+
   useEffect(() => {
-    loadAccommodation().then(d => setState(d as AccomData)).catch(() => {
-      try { const raw = localStorage.getItem(STORAGE_KEY); if (raw) setState(JSON.parse(raw)) } catch {}
-    })
+    loadAccommodation()
+      .then(d => setState(d as AccomData))
+      .catch(err => {
+        console.error('Failed to load accommodation from Supabase:', err)
+        setSaveError('Failed to load accommodation data')
+      })
   }, [])
-  const save = (d: AccomData) => {
+
+  // Basic realtime for accommodation_data
+  useEffect(() => {
+    const channel = supabase
+      .channel('accommodation-realtime')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'accommodation_data' }, (payload) => {
+        if (payload.new && (payload.new as any).rooms) {
+          setState({ rooms: (payload.new as any).rooms ?? [] })
+        }
+      })
+      .subscribe()
+    return () => { supabase.removeChannel(channel) }
+  }, [])
+
+  const save = async (d: AccomData) => {
     setState(d)
-    saveAccommodation(d).catch(() => {
-      try { localStorage.setItem(STORAGE_KEY, JSON.stringify(d)) } catch(e) {
-        if (e instanceof DOMException) window.dispatchEvent(new CustomEvent('storage-quota-exceeded'))
-      }
-    })
+    setSaveError(null)
+    try {
+      await saveAccommodation(d)
+    } catch (err: any) {
+      console.error('Failed to save accommodation to Supabase:', err)
+      setSaveError('Failed to save changes')
+    }
   }
+
   return [state, save]
 }
 

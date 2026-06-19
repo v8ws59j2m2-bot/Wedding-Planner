@@ -5,7 +5,8 @@ import {
 } from 'lucide-react'
 import { SmallLeaf, Frangipani, BaliBorder } from '../components/Botanicals'
 import { uid } from '../lib/helpers'
-import { loadMoodBoard, saveMoodBoard } from '../lib/supabaseData'
+import { loadMoodBoard, saveMoodBoard, uploadMoodImage } from '../lib/supabaseData'
+import { supabase } from '../lib/supabase'
 import type { AppData } from '../types'
 
 // ── types ─────────────────────────────────────────────────────────────────────
@@ -51,6 +52,15 @@ function contrastColor(hex: string) {
   const g = parseInt(hex.slice(3, 5), 16)
   const b = parseInt(hex.slice(5, 7), 16)
   return (0.299 * r + 0.587 * g + 0.114 * b) > 160 ? '#3B2A22' : '#FFF8EE'
+}
+
+// Cache-bust Supabase Storage URLs for fresh loads across devices
+function getDisplaySrc(src: string, refreshKey: number): string {
+  if (!src || src.startsWith('data:')) return src
+  // Cache-bust Supabase Storage URLs using refreshKey (bumped on data changes/realtime)
+  // This avoids browser/CDN caching issues where new uploads don't appear immediately
+  const sep = src.includes('?') ? '&' : '?'
+  return `${src}${sep}v=${refreshKey}`
 }
 
 // ── constants ─────────────────────────────────────────────────────────────────
@@ -140,10 +150,32 @@ function SwatchModal({ initial, onSave, onClose }: {
 }
 
 // ── Image card ────────────────────────────────────────────────────────────────
-function ImageCard({ img, onEdit, onDelete }: {
-  img: MoodImage; onEdit: (i: MoodImage) => void; onDelete: (id: string) => void
+function ImageCard({ img, onEdit, onDelete, refreshKey = 0 }: {
+  img: MoodImage; onEdit: (i: MoodImage) => void; onDelete: (id: string) => void; refreshKey?: number
 }) {
   const [hover, setHover] = useState(false)
+  const [loadError, setLoadError] = useState(false)
+  const [loadAttempt, setLoadAttempt] = useState(0)
+
+  // Cache-busted src using refreshKey (updated on realtime/data change)
+  // On error, force additional bust + retry
+  const baseSrc = getDisplaySrc(img.src, refreshKey)
+  const displaySrc = loadError 
+    ? `${baseSrc}${baseSrc.includes('?') ? '&' : '?'}retry=${loadAttempt}-${Date.now()}`
+    : baseSrc
+
+  const handleImageError = () => {
+    if (loadAttempt < 2) {  // retry up to 2 times with fresh bust
+      setLoadError(true)
+      setLoadAttempt(a => a + 1)
+      // The src change will trigger reload
+    }
+  }
+
+  const handleImageLoad = () => {
+    if (loadError) setLoadError(false)
+  }
+
   return (
     <div
       onMouseEnter={() => setHover(true)}
@@ -161,10 +193,26 @@ function ImageCard({ img, onEdit, onDelete }: {
     >
       {/* Image */}
       <div style={{ aspectRatio: '4/3', overflow: 'hidden', position: 'relative', background: '#F2E3CF' }}>
-        <img src={img.src} alt={img.caption}
+        <img 
+          src={displaySrc} 
+          alt={img.caption}
           style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
           loading="lazy"
+          crossOrigin="anonymous"
+          onError={handleImageError}
+          onLoad={handleImageLoad}
         />
+        {loadError && (
+          <div 
+            onClick={(e) => { e.stopPropagation(); setLoadError(false); setLoadAttempt(0); /* will retry on next render */ }}
+            style={{
+              position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.6)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              color: '#fff', fontSize: 11, textAlign: 'center', padding: 8, cursor: 'pointer'
+            }}>
+            Failed to load image<br />Click to retry
+          </div>
+        )}
         {/* Hover overlay with actions */}
         <div style={{
           position: 'absolute', inset: 0,
@@ -235,7 +283,7 @@ function ImageModal({ initial, onSave, onClose }: {
         display: 'flex', gap: 24, maxHeight: '90vh', overflowY: 'auto' }}>
         {/* Thumbnail */}
         <div style={{ width: 120, flexShrink: 0 }}>
-          <img src={initial.src} alt="" style={{ width: '100%', aspectRatio: '1', objectFit: 'cover', borderRadius: 12, border: '1.5px solid #E8D5A3' }}/>
+          <img src={getDisplaySrc(initial.src, 0)} alt="" style={{ width: '100%', aspectRatio: '1', objectFit: 'cover', borderRadius: 12, border: '1.5px solid #E8D5A3' }}/>
         </div>
         {/* Form */}
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 14 }}>
@@ -276,21 +324,58 @@ function ImageModal({ initial, onSave, onClose }: {
 
 // ── Upload drop zone ───────────────────────────────────────────────────────────
 function DropZone({ category, onAdd }: { category: string; onAdd: (imgs: MoodImage[]) => void }) {
-  const [drag, setDrag]     = useState(false)
+  const [drag, setDrag] = useState(false)
   const [loading, setLoading] = useState(false)
-  const inputRef            = useRef<HTMLInputElement>(null)
+  const [progress, setProgress] = useState(0)
+  const inputRef = useRef<HTMLInputElement>(null)
 
   const process = async (files: FileList | null) => {
     if (!files?.length) return
     setLoading(true)
+    setProgress(0)
     const valid = Array.from(files).filter(f => f.type.startsWith('image/'))
-    const results = await Promise.all(valid.map(async f => ({
-      id: uid(), src: await fileToBase64(f),
-      caption: f.name.replace(/\.[^.]+$/, '').replace(/[-_]/g, ' '),
-      category, notes: '',
-    })))
+
+    const results: MoodImage[] = []
+    for (let i = 0; i < valid.length; i++) {
+      const f = valid[i]
+      try {
+        const { data: { user } } = await supabase.auth.getUser()
+        if (user) {
+          // Logged in → upload to Supabase Storage, store URL
+          const url = await uploadMoodImage(f)
+          results.push({
+            id: uid(),
+            src: url,
+            caption: f.name.replace(/\.[^.]+$/, '').replace(/[-_]/g, ' '),
+            category,
+            notes: '',
+          })
+        } else {
+          // Non-logged-in → keep base64 for local-first
+          results.push({
+            id: uid(),
+            src: await fileToBase64(f),
+            caption: f.name.replace(/\.[^.]+$/, '').replace(/[-_]/g, ' '),
+            category,
+            notes: '',
+          })
+        }
+      } catch (e) {
+        // Fallback to base64 on any upload error
+        results.push({
+          id: uid(),
+          src: await fileToBase64(f),
+          caption: f.name.replace(/\.[^.]+$/, '').replace(/[-_]/g, ' '),
+          category,
+          notes: '',
+        })
+      }
+      setProgress(Math.round(((i + 1) / valid.length) * 100))
+    }
+
     onAdd(results)
     setLoading(false)
+    setProgress(0)
   }
 
   return (
@@ -309,7 +394,12 @@ function DropZone({ category, onAdd }: { category: string; onAdd: (imgs: MoodIma
       <input ref={inputRef} type="file" accept="image/*" multiple hidden
         onChange={e => process(e.target.files)}/>
       {loading ? (
-        <p style={{ fontSize: 13, color: '#7A6657' }}>Uploading…</p>
+        <div>
+          <p style={{ fontSize: 13, color: '#7A6657' }}>Uploading… {progress}%</p>
+          <div style={{ width: '60%', height: 4, background: '#E8D5A3', margin: '8px auto', borderRadius: 2, overflow: 'hidden' }}>
+            <div style={{ width: `${progress}%`, height: '100%', background: '#C8A45D', transition: 'width .2s' }} />
+          </div>
+        </div>
       ) : (
         <>
           <div style={{ display: 'flex', justifyContent: 'center', gap: 8, marginBottom: 10, opacity: 0.6 }}>
@@ -334,8 +424,14 @@ interface Props { data: AppData; setData: (d: AppData | ((p: AppData) => AppData
 let _store: MoodBoardData = { images: [], swatches: STARTER_SWATCHES }
 let _loadState: 'pending' | 'loading' | 'done' = 'pending'
 const _listeners = new Set<() => void>()
+let _refreshKey = Date.now()
 
 function notifyListeners() { _listeners.forEach(fn => fn()) }
+
+function bumpRefreshKey() {
+  _refreshKey = Date.now()
+  notifyListeners()
+}
 
 // Load from Supabase once per page session
 async function ensureLoaded() {
@@ -348,24 +444,86 @@ async function ensureLoaded() {
     }
   } catch { /* keep defaults */ }
   _loadState = 'done'
+  bumpRefreshKey()
   notifyListeners()
+}
+
+async function refetchMoodBoard() {
+  try {
+    const d = await loadMoodBoard()
+    _store = {
+      images: d.images,
+      swatches: d.swatches.length > 0 ? d.swatches : STARTER_SWATCHES
+    }
+    bumpRefreshKey()
+    notifyListeners()
+  } catch { /* ignore */ }
 }
 
 // Kick off load immediately when module loads (not waiting for component mount)
 ensureLoaded()
 
-function useMoodBoard(): [MoodBoardData, (d: MoodBoardData) => void] {
+function useMoodBoard(): [MoodBoardData, (d: MoodBoardData) => void, number] {
   const [, forceRender] = useState(0)
+  const [localRefresh, setLocalRefresh] = useState(_refreshKey)
 
   useEffect(() => {
     // Re-render when load completes
-    const listener = () => forceRender(n => n + 1)
+    const listener = () => {
+      forceRender(n => n + 1)
+      setLocalRefresh(_refreshKey)
+    }
     _listeners.add(listener)
     return () => { _listeners.delete(listener) }
   }, [])
 
+  // Strengthen realtime subscription for moodboard_data to sync across devices
+  useEffect(() => {
+    const channel = supabase
+      .channel('moodboard-data-realtime')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'moodboard_data' },
+        (payload: any) => {
+          if (payload.new) {
+            // On any change (including new images from other devices), refetch fresh data
+            // This ensures latest image list and avoids any payload desync
+            refetchMoodBoard()
+          }
+        }
+      )
+      .subscribe((status) => {
+        if (status === 'SUBSCRIBED') {
+          // Optionally refetch once on successful sub to ensure latest
+          refetchMoodBoard()
+        }
+      })
+
+    return () => {
+      supabase.removeChannel(channel)
+    }
+  }, [])
+
+  // Add focus-based refetch for reliability (catches missed realtime or cache issues)
+  useEffect(() => {
+    const handleFocus = () => {
+      // Refetch to ensure we have latest data and bust any stale image caches
+      refetchMoodBoard()
+    }
+    window.addEventListener('focus', handleFocus)
+    // Also refetch on visibility change (e.g. switching tabs)
+    document.addEventListener('visibilitychange', () => {
+      if (!document.hidden) handleFocus()
+    })
+    return () => {
+      window.removeEventListener('focus', handleFocus)
+      document.removeEventListener('visibilitychange', handleFocus)
+    }
+  }, [])
+
   const save = (d: MoodBoardData) => {
     _store = d  // update store immediately — UI reflects it instantly
+    bumpRefreshKey()
     notifyListeners()
     saveMoodBoard(d).catch(() => {
       // Save failed — show quota warning if storage issue, otherwise silent
@@ -373,11 +531,11 @@ function useMoodBoard(): [MoodBoardData, (d: MoodBoardData) => void] {
     })
   }
 
-  return [_store, save]
+  return [_store, save, localRefresh]
 }
 
 export function MoodBoard({ data }: Props) {
-  const [board, saveBoard] = useMoodBoard()
+  const [board, saveBoard, refreshKey] = useMoodBoard()
   const [activeCategory, setActiveCategory] = useState<string>('All')
   const [search, setSearch]                 = useState('')
   const [editImage, setEditImage]           = useState<MoodImage | null>(null)
@@ -520,8 +678,8 @@ export function MoodBoard({ data }: Props) {
               gap: 20,
             }}>
               {filtered.map(img => (
-                <ImageCard key={img.id} img={img}
-                  onEdit={setEditImage} onDelete={deleteImage}/>
+                <ImageCard key={`${img.id}-${refreshKey}`} img={img}
+                  onEdit={setEditImage} onDelete={deleteImage} refreshKey={refreshKey}/>
               ))}
             </div>
           )}

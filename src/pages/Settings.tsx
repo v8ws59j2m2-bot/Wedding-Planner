@@ -34,7 +34,6 @@ export interface WeddingDetails {
   theme: string
 }
 
-const DETAILS_KEY = 'jb-wedding-details'
 const DEFAULT_DETAILS: WeddingDetails = {
   partner1: 'Jamie',
   partner2: 'Beth',
@@ -48,13 +47,15 @@ const DEFAULT_DETAILS: WeddingDetails = {
 function useSettingsWeddingDetails(): [WeddingDetails, (d: WeddingDetails) => void] {
   const [details, setDetails] = useState<WeddingDetails>(DEFAULT_DETAILS)
   useEffect(() => {
-    loadWDSupabase().then(d => setDetails(d)).catch(() => {
-      try { const raw = localStorage.getItem(DETAILS_KEY); if (raw) setDetails({ ...DEFAULT_DETAILS, ...JSON.parse(raw) }) } catch {}
+    loadWDSupabase().then(d => setDetails(d)).catch(err => {
+      console.error('Failed to load wedding details from Supabase:', err)
     })
   }, [])
   const save = (d: WeddingDetails) => {
     setDetails(d)
-    saveWDSupabase(d).catch(() => { localStorage.setItem(DETAILS_KEY, JSON.stringify(d)) })
+    saveWDSupabase(d).catch(err => {
+      console.error('Failed to save wedding details to Supabase:', err)
+    })
   }
   return [details, save]
 }

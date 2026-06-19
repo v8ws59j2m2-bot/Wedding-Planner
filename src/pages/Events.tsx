@@ -13,12 +13,10 @@ function fmtDate(iso: string) {
 }
 function todayISO() { return new Date().toISOString().split('T')[0] }
 
-const STORAGE_KEY = 'jb-events'
-
 function useEvents(appEvents: Event[], onSave: (evts: Event[]) => void): [Event[], (evts: Event[]) => void] {
+  // No localStorage fallback; relies on parent setData which uses Supabase for auth users
   const save = (evts: Event[]) => {
     onSave(evts)
-    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(evts)) } catch(e) { if (e instanceof DOMException) window.dispatchEvent(new CustomEvent("storage-quota-exceeded")) }
   }
   return [appEvents, save]
 }

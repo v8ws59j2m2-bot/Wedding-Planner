@@ -84,14 +84,15 @@ function RiceWaves({ scrollY }: { scrollY: number }) {
   return (
     <svg
       style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', pointerEvents: 'none' }}
+      viewBox="0 0 100 100"
       preserveAspectRatio="none"
     >
       {lines.map((t, i) => {
-        const yPct = t * 100 + (scrollY * 0.02 * (i % 2 === 0 ? 1 : -1))
+        const y = t * 100 + (scrollY * 0.02 * (i % 2 === 0 ? 1 : -1))
         const amp = 1.5 + i * 0.5
         return (
           <path key={i}
-            d={`M0,${yPct}% C25,${yPct - amp}% 50,${yPct + amp}% 75,${yPct - amp}% 100,${yPct}%`}
+            d={`M0 ${y} C25 ${y - amp} 50 ${y + amp} 75 ${y - amp} 100 ${y}`}
             stroke="#6B7D4E"
             strokeWidth={0.4 + i * 0.08}
             opacity={0.06 + i * 0.015}

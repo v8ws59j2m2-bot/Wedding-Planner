@@ -10,154 +10,151 @@ interface MigrateResult {
 export function MigratePage({ onDone }: { onDone: () => void }) {
   const [results, setResults] = useState<MigrateResult[]>([])
   const [running, setRunning] = useState(false)
-  const [done,    setDone]    = useState(false)
+  const [done, setDone] = useState(false)
+  const [progress, setProgress] = useState(0)
+
+  const STEPS = [
+    { key: 'App data (guests, budget, vendors, events…)', localKey: 'jamie-beth-wedding-planner', save: saveAppData, getDetail: (d: any) => `${d.guests?.length || 0} guests, ${d.budget?.length || 0} expenses, ${d.vendors?.length || 0} vendors` },
+    { key: 'Wedding details', localKey: 'jb-wedding-details', save: saveWeddingDetails, getDetail: (d: any) => `${d.partner1} & ${d.partner2}, ${d.date}` },
+    { key: 'Seating chart', localKey: 'jb-seating', save: saveSeating, getDetail: (d: any) => `${d.tables?.length || 0} tables` },
+    { key: 'Accommodation', localKey: 'jb-accommodation', save: saveAccommodation, getDetail: (d: any) => `${d.rooms?.length || 0} rooms` },
+    { key: 'Mood Board', localKey: 'jb-moodboard', save: (b: any) => saveMoodBoard({ images: b.images ?? [], swatches: b.swatches ?? [] }), getDetail: (d: any) => `${d.images?.length || 0} images, ${d.swatches?.length || 0} swatches` },
+  ]
 
   const migrate = async () => {
     setRunning(true)
+    setResults([])
+    setProgress(0)
     const out: MigrateResult[] = []
 
-    // 1. Main app data
-    try {
-      const raw = localStorage.getItem('jamie-beth-wedding-planner')
-      if (raw) {
-        const parsed = JSON.parse(raw)
-        const appData = {
-          guests:     parsed.guests     ?? [],
-          budget:     parsed.budget     ?? [],
-          checklist:  parsed.checklist  ?? [],
-          vendors:    parsed.vendors    ?? [],
-          moodImages: parsed.moodImages ?? [],
-          events:     parsed.events     ?? [],
-          travelInfo: parsed.travelInfo ?? [],
+    for (let i = 0; i < STEPS.length; i++) {
+      const step = STEPS[i]
+      setProgress(Math.round(((i) / STEPS.length) * 100))
+
+      try {
+        const raw = localStorage.getItem(step.localKey)
+        if (raw) {
+          const parsed = JSON.parse(raw)
+          await step.save(parsed)
+          out.push({
+            key: step.key,
+            status: 'ok',
+            detail: step.getDetail(parsed)
+          })
+        } else {
+          out.push({ key: step.key, status: 'skipped', detail: 'Nothing in localStorage' })
         }
-        await saveAppData(appData)
-        out.push({ key: 'App data (guests, budget, vendors, events…)', status: 'ok',
-          detail: `${appData.guests.length} guests, ${appData.budget.length} expenses, ${appData.vendors.length} vendors` })
-      } else {
-        out.push({ key: 'App data', status: 'skipped', detail: 'Nothing in localStorage' })
+      } catch (e: any) {
+        out.push({ key: step.key, status: 'error', detail: e.message || 'Unknown error' })
       }
-    } catch (e: any) {
-      out.push({ key: 'App data', status: 'error', detail: e.message })
+
+      setResults([...out])
+      setProgress(Math.round(((i + 1) / STEPS.length) * 100))
     }
 
-    // 2. Wedding details
-    try {
-      const raw = localStorage.getItem('jb-wedding-details')
-      if (raw) {
-        const details = JSON.parse(raw)
-        await saveWeddingDetails(details)
-        out.push({ key: 'Wedding details', status: 'ok', detail: `${details.partner1} & ${details.partner2}, ${details.date}` })
-      } else {
-        out.push({ key: 'Wedding details', status: 'skipped', detail: 'Nothing in localStorage' })
-      }
-    } catch (e: any) {
-      out.push({ key: 'Wedding details', status: 'error', detail: e.message })
-    }
-
-    // 3. Seating chart
-    try {
-      const raw = localStorage.getItem('jb-seating')
-      if (raw) {
-        const seating = JSON.parse(raw)
-        await saveSeating(seating)
-        out.push({ key: 'Seating chart', status: 'ok', detail: `${seating.tables?.length ?? 0} tables` })
-      } else {
-        out.push({ key: 'Seating chart', status: 'skipped', detail: 'Nothing in localStorage' })
-      }
-    } catch (e: any) {
-      out.push({ key: 'Seating chart', status: 'error', detail: e.message })
-    }
-
-    // 4. Accommodation
-    try {
-      const raw = localStorage.getItem('jb-accommodation')
-      if (raw) {
-        const accom = JSON.parse(raw)
-        await saveAccommodation(accom)
-        out.push({ key: 'Accommodation', status: 'ok', detail: `${accom.rooms?.length ?? 0} rooms` })
-      } else {
-        out.push({ key: 'Accommodation', status: 'skipped', detail: 'Nothing in localStorage' })
-      }
-    } catch (e: any) {
-      out.push({ key: 'Accommodation', status: 'error', detail: e.message })
-    }
-
-    // 5. Mood Board
-    try {
-      const raw = localStorage.getItem('jb-moodboard')
-      if (raw) {
-        const board = JSON.parse(raw)
-        await saveMoodBoard({ images: board.images ?? [], swatches: board.swatches ?? [] })
-        out.push({ key: 'Mood Board', status: 'ok', detail: `${board.images?.length ?? 0} images, ${board.swatches?.length ?? 0} swatches` })
-      } else {
-        out.push({ key: 'Mood Board', status: 'skipped', detail: 'Nothing in localStorage' })
-      }
-    } catch (e: any) {
-      out.push({ key: 'Mood Board', status: 'error', detail: e.message })
-    }
-
-    setResults(out)
+    const success = out.every(r => r.status !== 'error')
+    setDone(success)
     setRunning(false)
-    setDone(out.every(r => r.status !== 'error'))
+
+    if (success) {
+      // Auto-clear localStorage on success to fully switch to Supabase
+      try {
+        localStorage.removeItem('jamie-beth-wedding-planner')
+        localStorage.removeItem('jb-wedding-details')
+        localStorage.removeItem('jb-seating')
+        localStorage.removeItem('jb-accommodation')
+        localStorage.removeItem('jb-moodboard')
+        localStorage.removeItem('jb-timeline')
+        localStorage.removeItem('jb-events')
+      } catch {}
+    }
   }
 
-  const statusIcon = (s: MigrateResult['status']) =>
-    s === 'ok' ? '✅' : s === 'skipped' ? '⏭️' : '❌'
+  const progressBar = (
+    <div style={{ width: '100%', height: 6, background: '#E8D5A3', borderRadius: 3, marginBottom: 16, overflow: 'hidden' }}>
+      <div style={{
+        width: `${progress}%`,
+        height: '100%',
+        background: '#C8A45D',
+        transition: 'width 0.3s ease'
+      }} />
+    </div>
+  )
 
   return (
-    <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center',
-      background: '#FFF8EE', padding: 24 }}>
-      <div style={{ maxWidth: 480, width: '100%' }}>
-        <h1 style={{ fontFamily: 'Playfair Display, serif', fontSize: 26, fontStyle: 'italic',
-          color: '#3B2A22', marginBottom: 8, textAlign: 'center' }}>
+    <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#FFF8EE', padding: 24 }}>
+      <div style={{ maxWidth: 520, width: '100%' }}>
+        <h1 style={{ fontFamily: 'Playfair Display, serif', fontSize: 26, fontStyle: 'italic', color: '#3B2A22', marginBottom: 8, textAlign: 'center' }}>
           Migrate your data
         </h1>
-        <p style={{ fontSize: 13, color: '#7A6657', textAlign: 'center', lineHeight: 1.7, marginBottom: 32 }}>
-          This will copy all your existing planning data from this browser into your Supabase account so it's available on all devices.
+        <p style={{ fontSize: 13, color: '#7A6657', textAlign: 'center', lineHeight: 1.7, marginBottom: 24 }}>
+          Copy your local planning data to Supabase for cross-device access.
         </p>
 
         {results.length === 0 ? (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-            <button onClick={migrate} disabled={running}
-              style={{ width: '100%', padding: 14, borderRadius: 14, fontSize: 14, fontWeight: 600,
-                border: 'none', background: running ? '#E8D5A3' : '#3B2A22',
-                color: running ? '#7A6657' : '#FFF8EE', cursor: running ? 'default' : 'pointer' }}>
-              {running ? 'Migrating…' : 'Start migration'}
+            <button onClick={migrate} disabled={running} style={{
+              width: '100%', padding: 14, borderRadius: 14, fontSize: 14, fontWeight: 600,
+              border: 'none', background: running ? '#E8D5A3' : '#3B2A22', color: running ? '#7A6657' : '#FFF8EE', cursor: running ? 'default' : 'pointer'
+            }}>
+              {running ? 'Migrating…' : 'Start Migration'}
             </button>
-            <button onClick={onDone}
-              style={{ width: '100%', padding: 14, borderRadius: 14, fontSize: 14,
-                border: '1.5px solid #E8D5A3', background: 'transparent',
-                color: '#7A6657', cursor: 'pointer' }}>
-              Skip — my data is already in Supabase
+            <button onClick={onDone} style={{
+              width: '100%', padding: 14, borderRadius: 14, fontSize: 14,
+              border: '1.5px solid #E8D5A3', background: 'transparent', color: '#7A6657', cursor: 'pointer'
+            }}>
+              Skip — data already in Supabase
             </button>
           </div>
         ) : (
           <>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 24 }}>
-              {results.map(r => (
-                <div key={r.key} style={{ display: 'flex', alignItems: 'flex-start', gap: 10,
-                  padding: '12px 16px', borderRadius: 12, background: '#FAF3E6', border: '1.5px solid #E8D5A3' }}>
-                  <span style={{ fontSize: 16, flexShrink: 0 }}>{statusIcon(r.status)}</span>
-                  <div>
-                    <p style={{ fontSize: 13, fontWeight: 600, color: '#3B2A22' }}>{r.key}</p>
-                    {r.detail && <p style={{ fontSize: 11, color: '#7A6657', marginTop: 2 }}>{r.detail}</p>}
+            {progressBar}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 24, maxHeight: 300, overflowY: 'auto' }}>
+              {STEPS.map((step, idx) => {
+                const r = results[idx] || { key: step.key, status: running && idx === results.length ? 'pending' : 'skipped' as const }
+                const isCurrent = running && idx === results.length
+                return (
+                  <div key={idx} style={{
+                    display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px',
+                    borderRadius: 10, background: '#FAF3E6', border: '1px solid #E8D5A3',
+                    opacity: r.status === 'skipped' ? 0.7 : 1
+                  }}>
+                    <span style={{ fontSize: 15 }}>{r.status === 'ok' ? '✅' : r.status === 'error' ? '❌' : isCurrent ? '⏳' : '⏭️'}</span>
+                    <div style={{ flex: 1, fontSize: 13 }}>
+                      <div style={{ fontWeight: 600, color: '#3B2A22' }}>{step.key}</div>
+                      {r.detail && <div style={{ fontSize: 11, color: '#7A6657' }}>{r.detail}</div>}
+                    </div>
+                    {isCurrent && <span style={{ fontSize: 11, color: '#C8A45D' }}>processing…</span>}
                   </div>
-                </div>
-              ))}
+                )
+              })}
             </div>
 
             {done && (
-              <button onClick={onDone}
-                style={{ width: '100%', padding: 14, borderRadius: 14, fontSize: 14, fontWeight: 600,
-                  border: 'none', background: '#3B2A22', color: '#FFF8EE', cursor: 'pointer' }}>
-                Continue to planner →
-              </button>
+              <div style={{ textAlign: 'center', marginBottom: 16 }}>
+                <p style={{ color: '#7F9A78', fontWeight: 600, marginBottom: 8 }}>✅ Migration complete! Local data cleared.</p>
+                <button onClick={onDone} style={{
+                  width: '100%', padding: 14, borderRadius: 14, fontSize: 14, fontWeight: 600,
+                  border: 'none', background: '#3B2A22', color: '#FFF8EE', cursor: 'pointer'
+                }}>
+                  Continue to planner →
+                </button>
+              </div>
             )}
 
-            {!done && (
-              <p style={{ fontSize: 12, color: '#C47A52', textAlign: 'center' }}>
-                Some items failed to migrate. Check your Supabase connection and try again.
-              </p>
+            {!done && !running && results.length > 0 && (
+              <div>
+                <p style={{ fontSize: 12, color: '#C47A52', textAlign: 'center', marginBottom: 10 }}>
+                  Some items failed. Fix connection and retry.
+                </p>
+                <button onClick={migrate} style={{ width: '100%', padding: 12, borderRadius: 12, background: '#3B2A22', color: '#FFF8EE', border: 'none', fontWeight: 600 }}>
+                  Retry Migration
+                </button>
+              </div>
+            )}
+
+            {running && (
+              <p style={{ fontSize: 12, color: '#7A6657', textAlign: 'center' }}>Please keep this tab open…</p>
             )}
           </>
         )}

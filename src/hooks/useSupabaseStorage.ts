@@ -7,6 +7,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { loadAppData, saveAppData, loadWeddingDetails } from '../lib/supabaseData'
 import { exportAllData, parseImport } from '../services/dataService'
+import { supabase } from '../lib/supabase'
 import type { AppData } from '../types'
 
 const DEFAULT: AppData = {
@@ -29,6 +30,53 @@ export function useSupabaseStorage() {
       .finally(() => setLoading(false))
   }, [])
 
+  // Basic realtime subscription for app_data (live sync across tabs/devices when authenticated)
+  useEffect(() => {
+    const channel = supabase
+      .channel('app-data-realtime')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'app_data' },
+        (payload) => {
+          if (payload.new && typeof payload.new === 'object') {
+            const newData = payload.new as any
+            // Only update if it looks like our data (has guests etc.)
+            if (Array.isArray(newData.guests)) {
+              setDataState({
+                guests: newData.guests ?? [],
+                budget: newData.budget ?? [],
+                checklist: newData.checklist ?? [],
+                vendors: newData.vendors ?? [],
+                moodImages: newData.mood_images ?? [],
+                events: newData.events ?? [],
+                travelInfo: newData.travel_info ?? [],
+              })
+            }
+          }
+        }
+      )
+      .subscribe()
+
+    return () => {
+      supabase.removeChannel(channel)
+    }
+  }, [])
+
+  // Simple retry helper for reliability
+  async function saveWithRetry(fn: () => Promise<void>, attempts = 3) {
+    let lastErr: any
+    for (let i = 0; i < attempts; i++) {
+      try {
+        await fn()
+        return
+      } catch (e) {
+        lastErr = e
+        if (i < attempts - 1) await new Promise(r => setTimeout(r, 300 * (i + 1)))
+      }
+    }
+    throw lastErr
+  }
+
   // Debounced save to Supabase on every data change
   const setData = useCallback((update: AppData | ((prev: AppData) => AppData)) => {
     // Compute next state without calling other setters inside the updater
@@ -40,12 +88,16 @@ export function useSupabaseStorage() {
     // Schedule side effects outside the updater function
     setSyncErr(null)
     if (saveTimer.current) clearTimeout(saveTimer.current)
-    saveTimer.current = setTimeout(() => {
+    saveTimer.current = setTimeout(async () => {
       if (nextData) {
         setSyncing(true)
-        saveAppData(nextData)
-          .catch(() => setSyncErr('Could not save — changes may be lost'))
-          .finally(() => setSyncing(false))
+        try {
+          await saveWithRetry(() => saveAppData(nextData!))
+        } catch {
+          setSyncErr('Could not save to Supabase — changes kept locally until next successful sync')
+        } finally {
+          setSyncing(false)
+        }
       }
     }, 800)
   }, [])
@@ -75,5 +127,17 @@ export function useSupabaseStorage() {
     reader.readAsText(file)
   }, [setData])
 
-  return { data, setData, exportData, importData, loading, syncing, syncError: syncErr }
+  const syncNow = useCallback(async () => {
+    setSyncErr(null)
+    setSyncing(true)
+    try {
+      await saveWithRetry(() => saveAppData(data))
+    } catch {
+      setSyncErr('Sync failed. Changes will retry automatically.')
+    } finally {
+      setSyncing(false)
+    }
+  }, [data])
+
+  return { data, setData, exportData, importData, loading, syncing, syncError: syncErr, syncNow }
 }

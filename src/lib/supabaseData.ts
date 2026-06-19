@@ -18,6 +18,22 @@ async function getUserId(): Promise<string | null> {
   return user?.id ?? null
 }
 
+// Simple retry with backoff for reliable saves
+async function withRetry<T>(fn: () => Promise<T>, maxAttempts = 3): Promise<T> {
+  let lastError: any
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      return await fn()
+    } catch (err) {
+      lastError = err
+      if (attempt < maxAttempts) {
+        await new Promise(r => setTimeout(r, 300 * attempt)) // backoff 300ms, 600ms, ...
+      }
+    }
+  }
+  throw lastError
+}
+
 // ── AppData ───────────────────────────────────────────────────────────────────
 export async function loadAppData(): Promise<AppData> {
   const userId = await getUserId()
@@ -49,14 +65,16 @@ export async function loadAppData(): Promise<AppData> {
 export async function saveAppData(appData: AppData): Promise<void> {
   const userId = await getUserId()
   if (!userId) return
-  const { error } = await supabase.from('app_data').upsert({
-    user_id: userId,
-    guests: appData.guests, budget: appData.budget,
-    checklist: appData.checklist, vendors: appData.vendors,
-    mood_images: appData.moodImages, events: appData.events,
-    travel_info: appData.travelInfo,
-  }, { onConflict: 'user_id' })
-  if (error) throw error
+  await withRetry(async () => {
+    const { error } = await supabase.from('app_data').upsert({
+      user_id: userId,
+      guests: appData.guests, budget: appData.budget,
+      checklist: appData.checklist, vendors: appData.vendors,
+      mood_images: appData.moodImages, events: appData.events,
+      travel_info: appData.travelInfo,
+    }, { onConflict: 'user_id' })
+    if (error) throw error
+  })
 }
 
 // ── Wedding Details ───────────────────────────────────────────────────────────
@@ -73,9 +91,11 @@ export async function loadWeddingDetails(): Promise<WeddingDetails> {
 export async function saveWeddingDetails(details: WeddingDetails): Promise<void> {
   const userId = await getUserId()
   if (!userId) return
-  const { error } = await supabase.from('wedding_details')
-    .upsert({ user_id: userId, ...details }, { onConflict: 'user_id' })
-  if (error) throw error
+  await withRetry(async () => {
+    const { error } = await supabase.from('wedding_details')
+      .upsert({ user_id: userId, ...details }, { onConflict: 'user_id' })
+    if (error) throw error
+  })
 }
 
 // ── Seating ───────────────────────────────────────────────────────────────────
@@ -91,9 +111,11 @@ export async function loadSeating(): Promise<{ tables: any[] }> {
 export async function saveSeating(seatingData: { tables: any[] }): Promise<void> {
   const userId = await getUserId()
   if (!userId) return
-  const { error } = await supabase.from('seating_data')
-    .upsert({ user_id: userId, tables: seatingData.tables }, { onConflict: 'user_id' })
-  if (error) throw error
+  await withRetry(async () => {
+    const { error } = await supabase.from('seating_data')
+      .upsert({ user_id: userId, tables: seatingData.tables }, { onConflict: 'user_id' })
+    if (error) throw error
+  })
 }
 
 // ── Timeline ─────────────────────────────────────────────────────────────────
@@ -110,14 +132,16 @@ export async function loadTimeline(): Promise<any[]> {
 export async function saveTimeline(timeline: any[]): Promise<void> {
   const userId = await getUserId()
   if (!userId) return
-  // Upsert a row with just timeline — merge with existing data server-side
-  const { data: existing } = await supabase
-    .from('app_data').select('*').eq('user_id', userId).single()
-  if (!existing) return // no app_data row yet — skip, will be created on next full save
-  const { error } = await supabase.from('app_data')
-    .update({ timeline } as any)
-    .eq('user_id', userId)
-  if (error) throw error
+  await withRetry(async () => {
+    // Upsert a row with just timeline — merge with existing data server-side
+    const { data: existing } = await supabase
+      .from('app_data').select('*').eq('user_id', userId).single()
+    if (!existing) return // no app_data row yet — skip, will be created on next full save
+    const { error } = await supabase.from('app_data')
+      .update({ timeline } as any)
+      .eq('user_id', userId)
+    if (error) throw error
+  })
 }
 
 // ── Mood Board ────────────────────────────────────────────────────────────────
@@ -133,9 +157,25 @@ export async function loadMoodBoard(): Promise<{ images: any[]; swatches: any[] 
 export async function saveMoodBoard(board: { images: any[]; swatches: any[] }): Promise<void> {
   const userId = await getUserId()
   if (!userId) return
-  const { error } = await supabase.from('moodboard_data')
-    .upsert({ user_id: userId, images: board.images, swatches: board.swatches }, { onConflict: 'user_id' })
+  await withRetry(async () => {
+    const { error } = await supabase.from('moodboard_data')
+      .upsert({ user_id: userId, images: board.images, swatches: board.swatches }, { onConflict: 'user_id' })
+    if (error) throw error
+  })
+}
+
+// Upload image to Supabase Storage (bucket 'moodboard' must exist and have policies for authenticated users)
+export async function uploadMoodImage(file: File): Promise<string> {
+  const userId = await getUserId()
+  if (!userId) throw new Error('Login required to upload images')
+  const fileExt = file.name.split('.').pop() || 'jpg'
+  const filePath = `${userId}/${Date.now()}.${fileExt}`
+  const { error } = await supabase.storage
+    .from('moodboard')
+    .upload(filePath, file, { cacheControl: '3600', upsert: false })
   if (error) throw error
+  const { data } = supabase.storage.from('moodboard').getPublicUrl(filePath)
+  return data.publicUrl
 }
 
 // ── Accommodation ─────────────────────────────────────────────────────────────
@@ -151,7 +191,9 @@ export async function loadAccommodation(): Promise<{ rooms: any[] }> {
 export async function saveAccommodation(accomData: { rooms: any[] }): Promise<void> {
   const userId = await getUserId()
   if (!userId) return
-  const { error } = await supabase.from('accommodation_data')
-    .upsert({ user_id: userId, rooms: accomData.rooms }, { onConflict: 'user_id' })
-  if (error) throw error
+  await withRetry(async () => {
+    const { error } = await supabase.from('accommodation_data')
+      .upsert({ user_id: userId, rooms: accomData.rooms }, { onConflict: 'user_id' })
+    if (error) throw error
+  })
 }

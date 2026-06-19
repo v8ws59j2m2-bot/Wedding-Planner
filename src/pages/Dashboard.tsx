@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { loadAccommodation } from '../lib/supabaseData'
 import { Users, PiggyBank, CheckSquare, Store, ArrowRight, Calendar, Sparkles } from 'lucide-react'
 import { LilySprig, SmallLeaf, Frangipani, TempleGate, PalmFrond, RiceFields, BaliBorder, BatikCorner } from '../components/Botanicals'
 import { useIsMobile } from '../hooks/useIsMobile'
@@ -242,11 +243,11 @@ export function Dashboard({ data, onNavigate }: Props) {
   // Check overdue payment stages / final balance deadlines
   const overduePayments = countOverduePayments(data.budget)
 
-  // Check accommodation allocations
-  const accomData = (() => {
-    try { const r = localStorage.getItem('jb-accommodation'); return r ? JSON.parse(r) : { rooms: [] } }
-    catch { return { rooms: [] } }
-  })()
+  // Check accommodation allocations (from Supabase, no local fallback)
+  const [accomData, setAccomData] = useState<{ rooms: { guestIds: string[] }[] }>({ rooms: [] })
+  useEffect(() => {
+    loadAccommodation().then(d => setAccomData(d as any)).catch(() => setAccomData({ rooms: [] }))
+  }, [])
   const allocatedIds = new Set((accomData.rooms as { guestIds: string[] }[]).flatMap(r => r.guestIds))
   const unallocatedGuests = allGuests.filter(g => !allocatedIds.has(g.id)).length
 

@@ -9,23 +9,15 @@ const DEFAULT: WeddingDetails = {
   theme: 'Romantic Balinese Minimalist',
 }
 
-const DETAILS_KEY = 'jb-wedding-details'
-
 /** Read wedding details — Supabase first, localStorage fallback, then defaults. */
 export function useWeddingDetails(): WeddingDetails {
-  const [details, setDetails] = useState<WeddingDetails>(() => {
-    // Synchronous initial value from localStorage so countdown/display is instant
-    try {
-      const raw = localStorage.getItem(DETAILS_KEY)
-      return raw ? { ...DEFAULT, ...JSON.parse(raw) } : DEFAULT
-    } catch { return DEFAULT }
-  })
+  const [details, setDetails] = useState<WeddingDetails>(DEFAULT)
 
   useEffect(() => {
-    // Async refresh from Supabase
+    // Load from Supabase (no local fallback for auth users; sync initial from defaults or cache if needed)
     loadFromSupabase()
       .then(d => setDetails(d))
-      .catch(() => { /* keep localStorage value */ })
+      .catch(() => { /* keep defaults on error */ })
   }, [])
 
   return details

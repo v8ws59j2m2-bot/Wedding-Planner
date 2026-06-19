@@ -39,10 +39,11 @@ interface Props {
   onStartTour: (tourId: string) => void
   syncing?: boolean
   syncError?: string | null
+  onSyncNow?: () => void
   isMobile?: boolean
 }
 
-export function TopBar({ page, onToggleSidebar, onExport, onImport, onStartTour, syncing = false, syncError = null, isMobile }: Props) {
+export function TopBar({ page, onToggleSidebar, onExport, onImport, onStartTour, syncing = false, syncError = null, onSyncNow, isMobile }: Props) {
   const details = useWeddingDetails()
   const weddingDate = new Date(details.date + 'T00:00:00')
   const days = useCountdown(weddingDate)
@@ -120,6 +121,16 @@ export function TopBar({ page, onToggleSidebar, onExport, onImport, onStartTour,
 
         {/* Sync status */}
         {!isMobile && <SyncIndicator syncing={syncing} syncError={syncError}/>}
+
+        {/* Sync Now button for manual trigger */}
+        {!isMobile && onSyncNow && (
+          <button onClick={onSyncNow} title="Force sync to Supabase" style={{
+            padding: '4px 8px', fontSize: 11, borderRadius: 6, border: '1px solid #E8D5A3',
+            background: 'transparent', color: '#7A6657', cursor: 'pointer'
+          }}>
+            Sync Now
+          </button>
+        )}
 
         {/* Help */}
         <HelpPanel onStartTour={onStartTour}/>
