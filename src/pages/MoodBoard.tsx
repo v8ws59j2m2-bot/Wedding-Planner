@@ -290,7 +290,10 @@ function ImageModal({ initial, onSave, onClose }: {
 }
 
 // ── Upload drop zone ───────────────────────────────────────────────────────────
-function DropZone({ category, onAdd }: { category: string; onAdd: (imgs: MoodBoardImage[]) => Promise<boolean> }) {
+function DropZone({ category, onAdd }: {
+  category: string
+  onAdd: (imgs: MoodBoardImage[]) => Promise<{ ok: true } | { ok: false; error: string }>
+}) {
   const [drag, setDrag] = useState(false)
   const [loading, setLoading] = useState(false)
   const [progress, setProgress] = useState(0)
@@ -330,9 +333,11 @@ function DropZone({ category, onAdd }: { category: string; onAdd: (imgs: MoodBoa
       }
 
       if (results.length) {
-        const saved = await onAdd(results)
-        if (!saved) {
-          alert('Image uploaded but could not be saved to your mood board. Please try again.')
+        const result = await onAdd(results)
+        if (!result.ok) {
+          alert(
+            `Image uploaded but could not be saved to your mood board.\n\nDetails: ${result.error}`,
+          )
         }
       }
     } catch (err) {

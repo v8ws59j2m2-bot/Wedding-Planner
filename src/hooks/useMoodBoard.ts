@@ -84,7 +84,9 @@ export function useMoodBoard() {
   const serverUpdatedAtRef = useRef<string | null>(null)
   const metadataSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const refetchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const persistChainRef = useRef<Promise<boolean>>(Promise.resolve(true))
+  const persistChainRef = useRef<Promise<{ ok: true } | { ok: false; error: string }>>(
+    Promise.resolve({ ok: true }),
+  )
   const realtimeRef = useRef<ReturnType<typeof subscribeToMoodBoard> | null>(null)
 
   const bumpRefresh = useCallback(() => {
@@ -99,11 +101,11 @@ export function useMoodBoard() {
   const persistBoard = useCallback(async (
     snapshot: Pick<MoodBoardData, 'images' | 'swatches'>,
     reason: string,
-  ): Promise<boolean> => {
-    const run = async (): Promise<boolean> => {
+  ): Promise<{ ok: true } | { ok: false; error: string }> => {
+    const run = async (): Promise<{ ok: true } | { ok: false; error: string }> => {
       if (!hasLoadedRef.current) {
         console.log('[moodboard] persist skipped — not ready', { reason })
-        return false
+        return { ok: false, error: 'Mood board not ready yet — please wait and try again' }
       }
 
       isSavingRef.current = true
@@ -119,12 +121,12 @@ export function useMoodBoard() {
         serverUpdatedAtRef.current = updatedAt
         setSaveError(null)
         console.log('[moodboard] persist ok', { reason, images: snapshot.images.length, updatedAt })
-        return true
+        return { ok: true }
       } catch (err) {
         const msg = err instanceof Error ? err.message : 'Could not save mood board'
         console.error('[moodboard] persist failed', { reason, err })
         setSaveError(msg)
-        return false
+        return { ok: false, error: msg }
       } finally {
         isSavingRef.current = false
       }
@@ -204,16 +206,19 @@ export function useMoodBoard() {
     setBoard(prev => (typeof update === 'function' ? update(prev) : update))
   }, [])
 
-  const addImages = useCallback(async (imgs: MoodBoardImage[]): Promise<boolean> => {
-    if (!imgs.length) return true
+  const addImages = useCallback(async (
+    imgs: MoodBoardImage[],
+  ): Promise<{ ok: true } | { ok: false; error: string }> => {
+    if (!imgs.length) return { ok: true }
 
     const ready = await waitForReady(
       () => hasLoadedRef.current && !!userIdRef.current,
       INIT_WAIT_MS,
     )
     if (!ready) {
-      setSaveError('Mood board is still loading — please wait and try again')
-      return false
+      const error = 'Mood board is still loading — please wait and try again'
+      setSaveError(error)
+      return { ok: false, error }
     }
 
     const prev = boardRef.current
@@ -223,18 +228,18 @@ export function useMoodBoard() {
     updateBoardLocal(nextBoard)
     bumpRefresh()
 
-    const ok = await persistBoard(
+    const result = await persistBoard(
       { images: nextImages, swatches: prev.swatches },
       'add-images',
     )
 
-    if (!ok) {
+    if (!result.ok) {
       boardRef.current = prev
       updateBoardLocal(prev)
       bumpRefresh()
     }
 
-    return ok
+    return result
   }, [bumpRefresh, persistBoard, updateBoardLocal])
 
   const saveImage = useCallback((img: MoodBoardImage) => {
@@ -252,8 +257,8 @@ export function useMoodBoard() {
     boardRef.current = nextBoard
     updateBoardLocal(nextBoard)
 
-    const ok = await persistBoard({ images: nextImages, swatches: prev.swatches }, 'delete-image')
-    if (!ok) {
+    const result = await persistBoard({ images: nextImages, swatches: prev.swatches }, 'delete-image')
+    if (!result.ok) {
       boardRef.current = prev
       updateBoardLocal(prev)
     }
