@@ -50,24 +50,33 @@ function formatSupabaseError(error: { message?: string; code?: string; details?:
  * Returns the authenticated user id from the live session.
  */
 async function ensureWriteSession(knownUserId?: string): Promise<string> {
+  const t0 = Date.now()
   const { data: { session: cached } } = await supabase.auth.getSession()
   const expiresAt = cached?.expires_at ?? 0
   const nowSec = Math.floor(Date.now() / 1000)
   const needsRefresh = !cached?.access_token || expiresAt - nowSec < SESSION_REFRESH_BUFFER_SEC
 
   if (needsRefresh) {
+    const refreshT0 = Date.now()
     const { data: refreshed, error } = await supabase.auth.refreshSession()
+    console.log(`[ensureWriteSession] refreshSession took ${Date.now() - refreshT0} ms`)
     if (error || !refreshed.session?.user?.id) {
+      const getUserT0 = Date.now()
       const { data: { user }, error: userError } = await supabase.auth.getUser()
+      console.log(`[ensureWriteSession] getUser fallback took ${Date.now() - getUserT0} ms`)
       if (userError || !user?.id) throw new Error('Not authenticated — please sign in again')
       if (knownUserId && user.id !== knownUserId) {
         console.log('[moodboard] session user differs from cached ref', { knownUserId, sessionUserId: user.id })
       }
+      console.log(`[ensureWriteSession] took ${Date.now() - t0} ms`, { path: 'getUser-fallback' })
       return user.id
     }
     if (refreshed.session.access_token) {
+      const authT0 = Date.now()
       await supabase.realtime.setAuth(refreshed.session.access_token)
+      console.log(`[ensureWriteSession] realtime.setAuth took ${Date.now() - authT0} ms`)
     }
+    console.log(`[ensureWriteSession] took ${Date.now() - t0} ms`, { path: 'refresh' })
     return refreshed.session.user.id
   }
 
@@ -75,6 +84,7 @@ async function ensureWriteSession(knownUserId?: string): Promise<string> {
   if (knownUserId && userId !== knownUserId) {
     console.log('[moodboard] session user differs from cached ref', { knownUserId, sessionUserId: userId })
   }
+  console.log(`[ensureWriteSession] took ${Date.now() - t0} ms`, { path: 'cached' })
   return userId
 }
 
@@ -585,24 +595,42 @@ export async function saveMoodBoard(
   board: Omit<MoodBoardData, 'updatedAt'>,
   knownUserId?: string,
 ): Promise<SaveMoodBoardResult> {
+  const totalT0 = Date.now()
   const images = normalizeMoodBoardImages(board.images)
   const swatches = normalizeMoodBoardSwatches(board.swatches)
 
-  return withRetry(async () => {
-    const userId = await ensureWriteSession(knownUserId)
+  try {
+    const result = await withRetry(async () => {
+      const attemptT0 = Date.now()
 
-    const { data, error: upsertError } = await supabase
-      .from('moodboard_data')
-      .upsert({ user_id: userId, images, swatches }, { onConflict: 'user_id' })
-      .select('updated_at')
-      .maybeSingle()
+      const sessionT0 = Date.now()
+      const userId = await ensureWriteSession(knownUserId)
+      console.log(`[saveMoodBoard] ensureWriteSession took ${Date.now() - sessionT0} ms`)
 
-    if (upsertError) throw new Error(formatSupabaseError(upsertError))
+      const upsertT0 = Date.now()
+      const { data, error: upsertError } = await supabase
+        .from('moodboard_data')
+        .upsert({ user_id: userId, images, swatches }, { onConflict: 'user_id' })
+        .select('updated_at')
+        .maybeSingle()
+      console.log(`[saveMoodBoard] upsert took ${Date.now() - upsertT0} ms`, {
+        imageCount: images.length,
+        swatchCount: swatches.length,
+      })
 
-    const updatedAt = (data?.updated_at as string) ?? new Date().toISOString()
-    MB_LOG('save ok', { images: images.length, updatedAt })
-    return { updatedAt, imageCount: images.length }
-  })
+      if (upsertError) throw new Error(formatSupabaseError(upsertError))
+
+      const updatedAt = (data?.updated_at as string) ?? new Date().toISOString()
+      console.log(`[saveMoodBoard] attempt took ${Date.now() - attemptT0} ms`)
+      MB_LOG('save ok', { images: images.length, updatedAt })
+      return { updatedAt, imageCount: images.length }
+    })
+    console.log(`[saveMoodBoard] total took ${Date.now() - totalT0} ms`)
+    return result
+  } catch (err) {
+    console.log(`[saveMoodBoard] total took ${Date.now() - totalT0} ms (failed)`)
+    throw err
+  }
 }
 
 export type MoodBoardRealtimeCallbacks = {
