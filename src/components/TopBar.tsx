@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { Menu, Download, Upload, LogOut } from 'lucide-react'
 import type { Page } from '../types'
+import type { ConnectionStatus } from '../lib/supabaseData'
 import { useWeddingDetails } from '../hooks/useWeddingDetails'
 import { HelpPanel } from './HelpPanel'
 import { SyncIndicator } from './SyncIndicator'
@@ -40,10 +41,36 @@ interface Props {
   syncing?: boolean
   syncError?: string | null
   onSyncNow?: () => void
+  connectionStatus?: ConnectionStatus
   isMobile?: boolean
 }
 
-export function TopBar({ page, onToggleSidebar, onExport, onImport, onStartTour, syncing = false, syncError = null, onSyncNow, isMobile }: Props) {
+function ConnectionDot({ status }: { status: ConnectionStatus }) {
+  const color =
+    status === 'connected' ? '#7F9A78'
+    : status === 'disconnected' ? '#C47A52'
+    : '#C8A45D' // connecting / reconnecting
+
+  const label =
+    status === 'connected' ? 'Live sync connected'
+    : status === 'reconnecting' ? 'Reconnecting…'
+    : status === 'disconnected' ? 'Disconnected'
+    : 'Connecting…'
+
+  return (
+    <span
+      title={label}
+      style={{
+        width: 8, height: 8, borderRadius: '50%',
+        backgroundColor: color,
+        flexShrink: 0,
+        boxShadow: status === 'connected' ? `0 0 0 2px ${color}33` : 'none',
+      }}
+    />
+  )
+}
+
+export function TopBar({ page, onToggleSidebar, onExport, onImport, onStartTour, syncing = false, syncError = null, onSyncNow, connectionStatus = 'connecting', isMobile }: Props) {
   const details = useWeddingDetails()
   const weddingDate = new Date(details.date + 'T00:00:00')
   const days = useCountdown(weddingDate)
@@ -119,12 +146,17 @@ export function TopBar({ page, onToggleSidebar, onExport, onImport, onStartTour,
             onChange={e => e.target.files?.[0] && onImport(e.target.files[0])}/>
         </label>
 
-        {/* Sync status */}
-        {!isMobile && <SyncIndicator syncing={syncing} syncError={syncError}/>}
+        {/* Live connection + sync status */}
+        {!isMobile && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <ConnectionDot status={connectionStatus}/>
+            <SyncIndicator syncing={syncing} syncError={syncError}/>
+          </div>
+        )}
 
-        {/* Sync Now button for manual trigger */}
+        {/* Sync Now — pull latest from Supabase + reconnect */}
         {!isMobile && onSyncNow && (
-          <button onClick={onSyncNow} title="Force sync to Supabase" style={{
+          <button onClick={onSyncNow} title="Refresh from Supabase and reconnect live sync" style={{
             padding: '4px 8px', fontSize: 11, borderRadius: 6, border: '1px solid #E8D5A3',
             background: 'transparent', color: '#7A6657', cursor: 'pointer'
           }}>

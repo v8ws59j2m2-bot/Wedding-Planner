@@ -5,10 +5,15 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { useState, useEffect, useRef, useCallback } from 'react'
-import type { RealtimeChannel } from '@supabase/supabase-js'
-import { loadAppData, saveAppData, loadWeddingDetails, mapAppDataRow } from '../lib/supabaseData'
+import {
+  loadAppData,
+  saveAppData,
+  loadWeddingDetails,
+  subscribeToAppData,
+  type ConnectionStatus,
+} from '../lib/supabaseData'
 import { exportAllData, parseImport } from '../services/dataService'
-import { supabase } from '../lib/supabase'
+import { supabase, registerRealtimeReconnect, unregisterRealtimeReconnect } from '../lib/supabase'
 import type { AppData } from '../types'
 
 const DEFAULT: AppData = {
@@ -16,23 +21,73 @@ const DEFAULT: AppData = {
   moodImages: [], events: [], travelInfo: [],
 }
 
+const SAVE_ECHO_IGNORE_MS = 1200
+const HEALTH_CHECK_MS = 20_000
+
 export function useSupabaseStorage() {
-  const [data,    setDataState] = useState<AppData>(DEFAULT)
-  const [loading, setLoading]   = useState(true)
-  const [syncing, setSyncing]   = useState(false)
-  const [syncErr, setSyncErr]   = useState<string | null>(null)
+  const [data, setDataState] = useState<AppData>(DEFAULT)
+  const [loading, setLoading] = useState(true)
+  const [syncing, setSyncing] = useState(false)
+  const [syncErr, setSyncErr] = useState<string | null>(null)
+  const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>('connecting')
+
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const hasLoadedRef = useRef(false)
-  const isSavingRef  = useRef(false)
+  const isSavingRef = useRef(false)
+  const lastSaveAtRef = useRef(0)
+  const realtimeRef = useRef<ReturnType<typeof subscribeToAppData> | null>(null)
+  const pullLatestRef = useRef<(reason: string) => Promise<void>>(async () => {})
 
-  // Load first, then subscribe to realtime — never save or apply remote updates until loaded
+  const shouldIgnoreRemote = useCallback(() => {
+    if (!isSavingRef.current) return false
+    return Date.now() - lastSaveAtRef.current < SAVE_ECHO_IGNORE_MS
+  }, [])
+
+  // Pull latest from Supabase — shared by Sync Now, focus catch-up, and reconnect
+  const pullLatest = useCallback(async (reason: string) => {
+    if (!hasLoadedRef.current) return
+    if (shouldIgnoreRemote()) return
+
+    console.log('[sync] pullLatest start', { reason })
+    setSyncing(true)
+    setSyncErr(null)
+    try {
+      const loaded = await loadAppData()
+      setDataState(loaded)
+      console.log('[sync] pullLatest ok', {
+        reason,
+        guests: loaded.guests.length,
+        budget: loaded.budget.length,
+        checklist: loaded.checklist.length,
+      })
+    } catch (err) {
+      console.log('[sync] pullLatest failed', { reason, err })
+      setSyncErr('Could not refresh from Supabase')
+    } finally {
+      setSyncing(false)
+    }
+  }, [shouldIgnoreRemote])
+
+  pullLatestRef.current = pullLatest
+
+  const syncNow = useCallback(async () => {
+    realtimeRef.current?.reconnect()
+    await pullLatest('sync-now')
+  }, [pullLatest])
+
+  // Initial load + realtime subscription
   useEffect(() => {
     let cancelled = false
-    let channel: RealtimeChannel | null = null
 
     async function init() {
-      const { data: { user } } = await supabase.auth.getUser()
+      const { data: { session } } = await supabase.auth.getSession()
+      const user = session?.user
       if (!user || cancelled) throw new Error('Not authenticated')
+
+      if (session?.access_token) {
+        await supabase.realtime.setAuth(session.access_token)
+        console.log('[sync] realtime auth set on init')
+      }
 
       const loaded = await loadAppData()
       if (cancelled) return
@@ -40,24 +95,30 @@ export function useSupabaseStorage() {
       setDataState(loaded)
       hasLoadedRef.current = true
       setLoading(false)
+      console.log('[sync] initial load ok', {
+        guests: loaded.guests.length,
+        budget: loaded.budget.length,
+        checklist: loaded.checklist.length,
+      })
 
-      channel = supabase
-        .channel(`app-data-realtime-${user.id}`)
-        .on(
-          'postgres_changes',
-          { event: '*', schema: 'public', table: 'app_data', filter: `user_id=eq.${user.id}` },
-          (payload) => {
-            if (isSavingRef.current) return
-            if (!payload.new || typeof payload.new !== 'object') return
-            const row = payload.new as Record<string, unknown>
-            if (row.user_id !== user.id) return
-            setDataState(mapAppDataRow(row))
-          },
-        )
-        .subscribe()
+      const sub = subscribeToAppData(user.id, {
+        onData: setDataState,
+        onStatus: setConnectionStatus,
+        shouldIgnoreUpdate: shouldIgnoreRemote,
+        onSubscribed: () => { void pullLatestRef.current('subscribed') },
+      })
+      realtimeRef.current = sub
+
+      registerRealtimeReconnect(() => {
+        console.log('[sync] heartbeat reconnect')
+        setConnectionStatus('reconnecting')
+        sub.reconnect()
+        void pullLatestRef.current('heartbeat')
+      })
     }
 
-    init().catch(() => {
+    init().catch((err) => {
+      console.log('[sync] init failed', err)
       if (!cancelled) setSyncErr('Could not load data')
     }).finally(() => {
       if (!cancelled && !hasLoadedRef.current) setLoading(false)
@@ -65,8 +126,61 @@ export function useSupabaseStorage() {
 
     return () => {
       cancelled = true
-      if (channel) supabase.removeChannel(channel)
+      unregisterRealtimeReconnect()
+      realtimeRef.current?.destroy()
+      realtimeRef.current = null
     }
+  }, [shouldIgnoreRemote])
+
+  // Refresh auth + reconnect on token change
+  useEffect(() => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+      console.log('[sync] auth state change', { event })
+      if (!session?.access_token) return
+      await supabase.realtime.setAuth(session.access_token)
+      realtimeRef.current?.reconnect()
+    })
+    return () => subscription.unsubscribe()
+  }, [])
+
+  // Catch-up when tab regains focus or visibility
+  useEffect(() => {
+    const onResume = (reason: string) => {
+      if (document.hidden && reason !== 'online') return
+      console.log('[sync] app resumed', { reason })
+      realtimeRef.current?.reconnect()
+      void pullLatestRef.current(reason)
+    }
+
+    const onFocus = () => onResume('focus')
+    const onOnline = () => onResume('online')
+    const onVisibility = () => {
+      if (!document.hidden) onResume('visibility')
+    }
+
+    window.addEventListener('focus', onFocus)
+    window.addEventListener('online', onOnline)
+    document.addEventListener('visibilitychange', onVisibility)
+
+    return () => {
+      window.removeEventListener('focus', onFocus)
+      window.removeEventListener('online', onOnline)
+      document.removeEventListener('visibilitychange', onVisibility)
+    }
+  }, [])
+
+  // Periodic health check while tab is visible
+  useEffect(() => {
+    const id = setInterval(() => {
+      if (document.hidden) return
+      const status = realtimeRef.current?.getChannelStatus()
+      if (status && status !== 'SUBSCRIBED') {
+        console.log('[sync] health check — reconnecting', { status })
+        realtimeRef.current?.reconnect()
+      }
+      void pullLatestRef.current('interval')
+    }, HEALTH_CHECK_MS)
+    return () => clearInterval(id)
   }, [])
 
   async function saveWithRetry(fn: () => Promise<void>, attempts = 3) {
@@ -83,7 +197,6 @@ export function useSupabaseStorage() {
     throw lastErr
   }
 
-  // Debounced save to Supabase on every data change (only after initial load)
   const setData = useCallback((update: AppData | ((prev: AppData) => AppData)) => {
     let nextData: AppData | null = null
     setDataState(prev => {
@@ -97,9 +210,13 @@ export function useSupabaseStorage() {
       if (!nextData || !hasLoadedRef.current) return
       setSyncing(true)
       isSavingRef.current = true
+      lastSaveAtRef.current = Date.now()
+      console.log('[sync] save start')
       try {
         await saveWithRetry(() => saveAppData(nextData!))
-      } catch {
+        console.log('[sync] save ok')
+      } catch (err) {
+        console.log('[sync] save failed', err)
         setSyncErr('Could not save to Supabase — changes kept locally until next successful sync')
       } finally {
         isSavingRef.current = false
@@ -133,20 +250,9 @@ export function useSupabaseStorage() {
     reader.readAsText(file)
   }, [setData])
 
-  const syncNow = useCallback(async () => {
-    if (!hasLoadedRef.current) return
-    setSyncErr(null)
-    setSyncing(true)
-    isSavingRef.current = true
-    try {
-      await saveWithRetry(() => saveAppData(data))
-    } catch {
-      setSyncErr('Sync failed. Changes will retry automatically.')
-    } finally {
-      isSavingRef.current = false
-      setSyncing(false)
-    }
-  }, [data])
-
-  return { data, setData, exportData, importData, loading, syncing, syncError: syncErr, syncNow }
+  return {
+    data, setData, exportData, importData,
+    loading, syncing, syncError: syncErr,
+    syncNow, connectionStatus,
+  }
 }

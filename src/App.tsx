@@ -78,7 +78,7 @@ export default function App() {
   const [page, setPage] = useState<Page>('dashboard')
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const isMobile = useIsMobile()
-  const { data, setData, exportData, importData, loading, syncing, syncError, syncNow } = useSupabaseStorage()
+  const { data, setData, exportData, importData, loading, syncing, syncError, syncNow, connectionStatus } = useSupabaseStorage()
   // All hooks must be called before any early returns (Rules of Hooks)
   const { show: quotaWarning, dismiss: dismissQuota } = useQuotaWarning()
 
@@ -200,6 +200,7 @@ export default function App() {
           syncing={syncing}
           syncError={syncError}
           onSyncNow={syncNow}
+          connectionStatus={connectionStatus}
           isMobile={isMobile}
         />
         <main id="main-scroll" style={{ flex: 1, overflowY: 'auto', paddingLeft: isMobile ? 0 : 40 }}>

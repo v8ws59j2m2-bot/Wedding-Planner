@@ -1,5 +1,16 @@
+import type { RealtimeChannel } from '@supabase/supabase-js'
 import { supabase } from './supabase'
 import type { AppData, WeddingDetails } from '../types'
+
+export type ConnectionStatus = 'connecting' | 'connected' | 'reconnecting' | 'disconnected'
+
+const LOG = (msg: string, detail?: unknown) => {
+  if (detail !== undefined) console.log('[sync]', msg, detail)
+  else console.log('[sync]', msg)
+}
+
+const RECONNECT_BASE_MS = 1000
+const RECONNECT_MAX_MS = 30_000
 
 export const DEFAULT_APP_DATA: AppData = {
   guests: [], budget: [], checklist: [], vendors: [],
@@ -82,6 +93,114 @@ export async function saveAppData(appData: AppData): Promise<void> {
     }, { onConflict: 'user_id' })
     if (error) throw error
   })
+}
+
+// ── Realtime subscription for app_data ────────────────────────────────────────
+export type AppDataRealtimeCallbacks = {
+  onData: (data: AppData) => void
+  onStatus: (status: ConnectionStatus) => void
+  shouldIgnoreUpdate?: () => boolean
+  onSubscribed?: () => void
+}
+
+export function subscribeToAppData(
+  userId: string,
+  callbacks: AppDataRealtimeCallbacks,
+): { reconnect: () => void; destroy: () => void; getChannelStatus: () => string } {
+  let channel: RealtimeChannel | null = null
+  let channelStatus = 'idle'
+  let reconnectAttempt = 0
+  let reconnectTimer: ReturnType<typeof setTimeout> | null = null
+  let destroyed = false
+
+  const setConnectionStatus = (status: ConnectionStatus) => {
+    callbacks.onStatus(status)
+  }
+
+  const removeChannel = () => {
+    if (channel) {
+      LOG('removing channel')
+      supabase.removeChannel(channel)
+      channel = null
+      channelStatus = 'idle'
+    }
+  }
+
+  const scheduleReconnect = () => {
+    if (destroyed || reconnectTimer) return
+    setConnectionStatus('reconnecting')
+
+    const delay = Math.min(RECONNECT_BASE_MS * 2 ** reconnectAttempt, RECONNECT_MAX_MS)
+    reconnectAttempt += 1
+    LOG('scheduling reconnect', { attempt: reconnectAttempt - 1, delayMs: delay })
+
+    reconnectTimer = setTimeout(() => {
+      reconnectTimer = null
+      if (!destroyed) connect()
+    }, delay)
+  }
+
+  const connect = () => {
+    if (destroyed) return
+    removeChannel()
+    setConnectionStatus('connecting')
+    LOG('connecting channel', { userId })
+
+    channel = supabase
+      .channel(`app-data-${userId}`)
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'app_data', filter: `user_id=eq.${userId}` },
+        (payload) => {
+          LOG('realtime event', { event: payload.eventType, hasNew: !!payload.new })
+          if (callbacks.shouldIgnoreUpdate?.()) return
+          if (!payload.new || typeof payload.new !== 'object') return
+          const row = payload.new as Record<string, unknown>
+          if (row.user_id !== userId) return
+          const mapped = mapAppDataRow(row)
+          callbacks.onData(mapped)
+          LOG('realtime applied', {
+            guests: mapped.guests.length,
+            budget: mapped.budget.length,
+            checklist: mapped.checklist.length,
+          })
+        },
+      )
+      .subscribe((status, err) => {
+        channelStatus = status
+        LOG('channel status', { status, err: err?.message ?? null })
+
+        if (status === 'SUBSCRIBED') {
+          reconnectAttempt = 0
+          setConnectionStatus('connected')
+          callbacks.onSubscribed?.()
+        } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') {
+          setConnectionStatus('reconnecting')
+          scheduleReconnect()
+        }
+      })
+  }
+
+  connect()
+
+  return {
+    reconnect: () => {
+      if (destroyed) return
+      reconnectAttempt = 0
+      if (reconnectTimer) {
+        clearTimeout(reconnectTimer)
+        reconnectTimer = null
+      }
+      connect()
+    },
+    destroy: () => {
+      destroyed = true
+      if (reconnectTimer) clearTimeout(reconnectTimer)
+      removeChannel()
+      setConnectionStatus('disconnected')
+    },
+    getChannelStatus: () => channelStatus,
+  }
 }
 
 // ── Wedding Details ───────────────────────────────────────────────────────────
