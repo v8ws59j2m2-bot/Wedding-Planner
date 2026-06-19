@@ -101,8 +101,7 @@ export function useMoodBoard() {
     reason: string,
   ): Promise<boolean> => {
     const run = async (): Promise<boolean> => {
-      const userId = userIdRef.current
-      if (!userId || !hasLoadedRef.current) {
+      if (!hasLoadedRef.current) {
         console.log('[moodboard] persist skipped — not ready', { reason })
         return false
       }
@@ -113,7 +112,7 @@ export function useMoodBoard() {
 
       try {
         const { updatedAt } = await withTimeout(
-          saveMoodBoard(snapshot, userId),
+          saveMoodBoard(snapshot, userIdRef.current ?? undefined),
           PERSIST_TIMEOUT_MS,
           'saveMoodBoard',
         )
@@ -208,7 +207,10 @@ export function useMoodBoard() {
   const addImages = useCallback(async (imgs: MoodBoardImage[]): Promise<boolean> => {
     if (!imgs.length) return true
 
-    const ready = await waitForReady(() => hasLoadedRef.current, INIT_WAIT_MS)
+    const ready = await waitForReady(
+      () => hasLoadedRef.current && !!userIdRef.current,
+      INIT_WAIT_MS,
+    )
     if (!ready) {
       setSaveError('Mood board is still loading — please wait and try again')
       return false

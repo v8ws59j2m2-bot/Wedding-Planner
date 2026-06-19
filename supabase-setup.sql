@@ -108,7 +108,9 @@ create policy "Users can read own moodboard_data"
 create policy "Users can insert own moodboard_data"
   on moodboard_data for insert with check (auth.uid() = user_id);
 create policy "Users can update own moodboard_data"
-  on moodboard_data for update using (auth.uid() = user_id);
+  on moodboard_data for update
+  using (auth.uid() = user_id)
+  with check (auth.uid() = user_id);
 
 -- ── Auto-update timestamps ────────────────────────────────────────────────────
 create or replace function update_updated_at()

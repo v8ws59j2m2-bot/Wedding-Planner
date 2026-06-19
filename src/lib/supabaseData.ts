@@ -38,6 +38,46 @@ async function requireUserId(): Promise<string> {
   return userId
 }
 
+const SESSION_REFRESH_BUFFER_SEC = 120
+
+function formatSupabaseError(error: { message?: string; code?: string; details?: string }): string {
+  const parts = [error.message, error.code && `(${error.code})`, error.details].filter(Boolean)
+  return parts.join(' ') || 'Unknown database error'
+}
+
+/**
+ * Ensure a valid JWT is attached before DB writes (mobile uploads can outlast token lifetime).
+ * Returns the authenticated user id from the live session.
+ */
+async function ensureWriteSession(knownUserId?: string): Promise<string> {
+  const { data: { session: cached } } = await supabase.auth.getSession()
+  const expiresAt = cached?.expires_at ?? 0
+  const nowSec = Math.floor(Date.now() / 1000)
+  const needsRefresh = !cached?.access_token || expiresAt - nowSec < SESSION_REFRESH_BUFFER_SEC
+
+  if (needsRefresh) {
+    const { data: refreshed, error } = await supabase.auth.refreshSession()
+    if (error || !refreshed.session?.user?.id) {
+      const { data: { user }, error: userError } = await supabase.auth.getUser()
+      if (userError || !user?.id) throw new Error('Not authenticated — please sign in again')
+      if (knownUserId && user.id !== knownUserId) {
+        console.log('[moodboard] session user differs from cached ref', { knownUserId, sessionUserId: user.id })
+      }
+      return user.id
+    }
+    if (refreshed.session.access_token) {
+      await supabase.realtime.setAuth(refreshed.session.access_token)
+    }
+    return refreshed.session.user.id
+  }
+
+  const userId = cached!.user!.id
+  if (knownUserId && userId !== knownUserId) {
+    console.log('[moodboard] session user differs from cached ref', { knownUserId, sessionUserId: userId })
+  }
+  return userId
+}
+
 // Simple retry with backoff for reliable saves
 async function withRetry<T>(fn: () => Promise<T>, maxAttempts = 3): Promise<T> {
   let lastError: any
@@ -538,34 +578,47 @@ export type SaveMoodBoardResult = {
 
 /**
  * Persist mood board metadata to moodboard_data.
- * Uses explicit insert/update (not blind upsert) and verifies the write.
+ * Refreshes the auth session before writing and always uses the live JWT user id
+ * (cached refs from hooks must not override auth.uid() for RLS).
  */
 export async function saveMoodBoard(
   board: Omit<MoodBoardData, 'updatedAt'>,
   knownUserId?: string,
 ): Promise<SaveMoodBoardResult> {
-  const userId = knownUserId ?? await requireUserId()
   const images = normalizeMoodBoardImages(board.images)
   const swatches = normalizeMoodBoardSwatches(board.swatches)
 
   return withRetry(async () => {
-    const { data, error } = await supabase
+    const userId = await ensureWriteSession(knownUserId)
+
+    const { error: upsertError } = await supabase
       .from('moodboard_data')
       .upsert({ user_id: userId, images, swatches }, { onConflict: 'user_id' })
+
+    if (upsertError) throw new Error(formatSupabaseError(upsertError))
+
+    const { data, error: readError } = await supabase
+      .from('moodboard_data')
       .select('updated_at,images')
-      .single()
+      .eq('user_id', userId)
+      .maybeSingle()
 
-    if (error) throw error
-    if (!data?.updated_at) throw new Error('moodboard_data save returned no row')
+    if (readError) throw new Error(formatSupabaseError(readError))
 
-    const savedImages = normalizeMoodBoardImages(data.images)
-    if (savedImages.length < images.length) {
-      throw new Error(
-        `moodboard_data save incomplete: expected ${images.length} images, got ${savedImages.length}`,
-      )
+    const savedImages = normalizeMoodBoardImages(data?.images)
+    const updatedAt = (data?.updated_at as string) ?? new Date().toISOString()
+
+    if (images.length > 0 && savedImages.length === 0) {
+      throw new Error('moodboard_data save could not be verified — no images persisted')
     }
 
-    const updatedAt = data.updated_at as string
+    const savedIds = new Set(savedImages.map(i => i.id))
+    const missing = images.filter(i => !savedIds.has(i.id))
+    if (missing.length > 0) {
+      MB_LOG('save missing image ids after upsert', { missing: missing.map(i => i.id) })
+      throw new Error(`moodboard_data save incomplete: ${missing.length} image(s) not persisted`)
+    }
+
     MB_LOG('save ok', { images: savedImages.length, updatedAt })
     return { updatedAt, imageCount: savedImages.length }
   })
@@ -663,7 +716,7 @@ export function subscribeToMoodBoard(
 
 // Upload image to Supabase Storage (bucket 'moodboard' must exist and have policies for authenticated users)
 export async function uploadMoodImage(file: File): Promise<string> {
-  const userId = await requireUserId()
+  const userId = await ensureWriteSession()
   const fileExt = file.name.split('.').pop() || 'jpg'
   const filePath = `${userId}/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${fileExt}`
   const { error } = await supabase.storage
