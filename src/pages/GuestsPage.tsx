@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { useLoveNoteOnNavigate } from '../components/LoveNote'
 import { Users, Plane } from 'lucide-react'
 import { Guests } from './Guests'
 import { TravelLogistics } from './TravelLogistics'
@@ -14,6 +15,7 @@ interface Props {
 
 export function GuestsPage({ data, setData, initialTab = 'list' }: Props) {
   const [tab, setTab] = useState<GuestsTab>(initialTab)
+  useLoveNoteOnNavigate(`guests-${tab}`)
 
   const missingTravel = (() => {
     const guests = data.guests.filter(g => g.attending !== 'no')

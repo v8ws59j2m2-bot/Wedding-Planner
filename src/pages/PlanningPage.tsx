@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { useLoveNoteOnNavigate } from '../components/LoveNote'
 import { CalendarDays, BookOpen, CheckSquare, Image } from 'lucide-react'
 import { Events } from './Events'
 import { Itinerary } from './Itinerary'
@@ -19,6 +20,7 @@ const VALID_TABS: PlanningTab[] = ['events', 'itinerary', 'checklist', 'moodboar
 export function PlanningPage({ data, setData, initialTab = 'events' }: Props) {
   const safeInitial: PlanningTab = VALID_TABS.includes(initialTab) ? initialTab : 'events'
   const [tab, setTab] = useState<PlanningTab>(safeInitial)
+  useLoveNoteOnNavigate(`planning-${tab}`)
 
   // Overdue checklist count for badge
   const overdueChecklist = data.checklist.filter(c =>

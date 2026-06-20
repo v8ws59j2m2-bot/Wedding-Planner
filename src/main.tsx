@@ -5,6 +5,7 @@ import App from './App.tsx'
 import { CurrencyProvider } from './context/CurrencyContext'
 import { MoodBoardProvider } from './context/MoodBoardContext'
 import { ErrorBoundary } from './components/ErrorBoundary.tsx'
+import { LoveNoteProvider } from './components/LoveNote.tsx'
 import { AuthScreen } from './components/AuthScreen.tsx'
 import { MigratePage } from './pages/MigratePage.tsx'
 import { supabase } from './lib/supabase.ts'
@@ -66,11 +67,13 @@ function Root() {
 
   return (
     <ErrorBoundary>
-      <CurrencyProvider>
-        <MoodBoardProvider>
-          <App/>
-        </MoodBoardProvider>
-      </CurrencyProvider>
+      <LoveNoteProvider>
+        <CurrencyProvider>
+          <MoodBoardProvider>
+            <App/>
+          </MoodBoardProvider>
+        </CurrencyProvider>
+      </LoveNoteProvider>
     </ErrorBoundary>
   )
 }

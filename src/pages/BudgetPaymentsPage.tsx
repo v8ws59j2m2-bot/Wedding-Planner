@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { useLoveNoteOnNavigate } from '../components/LoveNote'
 import { PiggyBank, CreditCard, BarChart2 } from 'lucide-react'
 import { Budget } from './Budget'
 import { UpcomingPayments } from './UpcomingPayments'
@@ -20,6 +21,7 @@ export function BudgetPaymentsPage({ data, setData, onNavigate, initialTab = 'bu
     ? initialTab : 'budget'
   const [tab, setTab] = useState<BudgetTab>(safeInitial)
   const [pendingExpenseId, setPendingExpenseId] = useState<string | undefined>(undefined)
+  useLoveNoteOnNavigate(`budget-${tab}`)
 
   const handleEditExpense = (id: string) => {
     setTab('budget')

@@ -1,4 +1,5 @@
 import { useState, useMemo, useEffect } from 'react'
+import { useLoveNoteOnNavigate } from '../components/LoveNote'
 import {
   DndContext, closestCenter, PointerSensor, useSensor, useSensors,
   type DragEndEvent,
@@ -555,6 +556,7 @@ export function Checklist({ data, setData }: Props) {
   const [taskModal, setTaskModal]       = useState<'new' | ChecklistItem | null>(null)
   const [timelineModal, setTimelineModal] = useState<'new' | TimelineEvent | null>(null)
   const [activeTab, setActiveTab]       = useState<'checklist' | 'timeline'>('checklist')
+  useLoveNoteOnNavigate(`checklist-${activeTab}`)
 
   // Timeline loaded from Supabase (no localStorage for authenticated users)
   const [timeline, setTimeline] = useState<TimelineEvent[]>(DEFAULT_TIMELINE)

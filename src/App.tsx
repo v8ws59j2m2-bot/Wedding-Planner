@@ -15,6 +15,7 @@ import { useSupabaseStorage } from './hooks/useSupabaseStorage'
 import { useIsMobile } from './hooks/useIsMobile'
 import { countOverduePayments } from './lib/helpers'
 import { useTour, TourOverlay, TourCtx } from './components/GuidedTour'
+import { useLoveNoteOnNavigate } from './components/LoveNote'
 import type { Page } from './types'
 
 // ── Storage quota warning banner ──────────────────────────────────────────────
@@ -82,6 +83,7 @@ export default function App() {
   const { data, setData, exportData, importData, loading, syncing, syncError, syncNow, connectionStatus } = useSupabaseStorage()
   // All hooks must be called before any early returns (Rules of Hooks)
   const { show: quotaWarning, dismiss: dismissQuota } = useQuotaWarning()
+  useLoveNoteOnNavigate(page)
 
   // Global tour — one active at a time, managed via a single hook instance per ID
   const [activeTourId, setActiveTourId] = useState<string | null>(null)

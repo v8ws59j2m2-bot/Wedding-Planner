@@ -1,10 +1,16 @@
 import { useState, useMemo, useRef, useEffect } from 'react'
 import {
-  Plus, X, Edit2, Trash2, Search, FileJson, Upload,
+  Plus, X, Edit2, Trash2, Search, FileJson, Upload, FileDown,
   Palette, Image as ImageIcon, Grid3X3, Filter,
 } from 'lucide-react'
 import { SmallLeaf, Frangipani, BaliBorder } from '../components/Botanicals'
 import { FilePreviewModal } from '../components/FilePreviewModal'
+import {
+  MoodBoardExportModal,
+  buildMoodBoardExportSections,
+} from '../components/MoodBoardExportModal'
+import { useWeddingDetails } from '../hooks/useWeddingDetails'
+import { useLoveNoteOnNavigate } from '../components/LoveNote'
 import { uid } from '../lib/helpers'
 import { openMoodBoardFile } from '../lib/moodBoardFiles'
 import { uploadMoodImage, type MoodBoardImage, type MoodBoardSwatch } from '../lib/supabaseData'
@@ -401,12 +407,15 @@ interface Props { data: AppData; setData: (d: AppData | ((p: AppData) => AppData
 
 export function MoodBoard({ data }: Props) {
   const { board, loading, refreshKey, saveError, addImages, saveImage, deleteImage, saveSwatch, deleteSwatch } = useMoodBoardContext()
+  const wedding = useWeddingDetails()
   const [activeCategory, setActiveCategory] = useState<string>('All')
   const [search, setSearch]                 = useState('')
   const [editImage, setEditImage]           = useState<MoodBoardImage | null>(null)
   const [previewImage, setPreviewImage]     = useState<MoodBoardImage | null>(null)
+  const [exportOpen, setExportOpen]         = useState(false)
   const [swatchModal, setSwatchModal]       = useState<'new' | MoodBoardSwatch | null>(null)
   const [activeTab, setActiveTab]           = useState<'images' | 'palette'>('images')
+  useLoveNoteOnNavigate(`moodboard-${activeTab}`)
 
   const images   = board.images
   const swatches = board.swatches
@@ -428,6 +437,11 @@ export function MoodBoard({ data }: Props) {
   }, [images])
 
   const catsWithImages = ['All', ...CATEGORIES.filter(c => (catCounts[c] ?? 0) > 0)]
+
+  const exportSections = useMemo(
+    () => buildMoodBoardExportSections(images, swatches, CATEGORIES, CAT_ICONS),
+    [images, swatches],
+  )
 
   const handleOpenItem = (img: MoodBoardImage) => {
     openMoodBoardFile(img.src, { onImagePreview: () => setPreviewImage(img) })
@@ -463,6 +477,22 @@ export function MoodBoard({ data }: Props) {
             </p>
           )}
         </div>
+        <button
+          type="button"
+          onClick={() => setExportOpen(true)}
+          disabled={exportSections.length === 0}
+          style={{
+            display: 'flex', alignItems: 'center', gap: 7,
+            padding: '10px 18px', borderRadius: 12,
+            border: '1.5px solid #E8D5A3', background: '#FAF3E6',
+            color: '#3B2A22', fontSize: 12, fontWeight: 600,
+            cursor: exportSections.length === 0 ? 'default' : 'pointer',
+            opacity: exportSections.length === 0 ? 0.5 : 1,
+            flexShrink: 0,
+          }}
+        >
+          <FileDown size={14} strokeWidth={2} /> Export PDF
+        </button>
       </div>
 
       {/* ── Tabs ── */}
@@ -696,6 +726,15 @@ export function MoodBoard({ data }: Props) {
         <SwatchModal
           initial={swatchModal === 'new' ? undefined : swatchModal as MoodBoardSwatch}
           onSave={saveSwatch} onClose={() => setSwatchModal(null)}
+        />
+      )}
+      {exportOpen && (
+        <MoodBoardExportModal
+          wedding={wedding}
+          images={images}
+          swatches={swatches}
+          sections={exportSections}
+          onClose={() => setExportOpen(false)}
         />
       )}
     </div>
