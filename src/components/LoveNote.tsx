@@ -9,6 +9,9 @@ import {
 } from 'react'
 import { pickRandomLoveNote } from '../data/loveNotes'
 
+/** Page-change notes for Beth. Off until someone turns this back on. */
+const LOVE_NOTES_ENABLED = false
+
 const DISPLAY_MS = 4000
 const FADE_MS = 450
 
@@ -104,6 +107,7 @@ export function LoveNoteProvider({ children }: { children: ReactNode }) {
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const trigger = useCallback((routeKey: string) => {
+    if (!LOVE_NOTES_ENABLED) return
     if (debounceRef.current) clearTimeout(debounceRef.current)
     debounceRef.current = setTimeout(() => {
       debounceRef.current = null
@@ -124,7 +128,7 @@ export function LoveNoteProvider({ children }: { children: ReactNode }) {
   return (
     <LoveNoteContext.Provider value={trigger}>
       {children}
-      {active && (
+      {LOVE_NOTES_ENABLED && active && (
         <LoveNoteOverlay key={active.id} message={active.message} onDone={handleDone} />
       )}
     </LoveNoteContext.Provider>
@@ -135,6 +139,7 @@ export function LoveNoteProvider({ children }: { children: ReactNode }) {
 export function useLoveNoteOnNavigate(routeKey: string) {
   const trigger = useContext(LoveNoteContext)
   useEffect(() => {
-    if (trigger) trigger(routeKey)
+    if (!LOVE_NOTES_ENABLED || !trigger) return
+    trigger(routeKey)
   }, [routeKey, trigger])
 }
