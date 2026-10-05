@@ -4,23 +4,36 @@
 
 A personal, all-in-one wedding planning app built for Jamie and Beth's destination wedding in Canggu, Bali, April 2028. It helps manage every aspect of a destination wedding in one place — from guest lists and vendor tracking to room allocation, event scheduling, budget oversight, seating, accommodation, and a printable guest itinerary.
 
-The app is currently in a **transitional state** between local-first and cloud-synced operation.
+The published site stores each signed-in person's planner in Supabase. Two different logins do not share one dataset.
+
+---
+
+## Documentation
+
+| Doc | Who it is for |
+|---|---|
+| `QUICK_START.md` | Using the planner day to day |
+| `SUPABASE_SETUP.md` | Project id, dashboard sign-in, local `.env` |
+| `docs/MAINTENANCE.md` | Deploy, recovery, env vars, what not to mix up |
+| `docs/ARCHITECTURE.md` | How the published app is built and where data lives |
+
+`CODE_REVIEW.md` is an old review snapshot. It is not the operating guide.
 
 ---
 
 ## Current Status
 
-- **Primary mode (current):** The app runs as a fast, private, local-first application using browser `localStorage`.
-- **Supabase backend:** A complete Supabase implementation has already been developed, including realtime subscriptions, user authentication, mood board support via Supabase Storage, and dedicated tables for guests, budget, vendors, seating, accommodation, timeline, and wedding details.
-- **Migration status:** Migration tooling (`MigratePage`) and authentication (`AuthScreen`) exist. The switch from the local data service to the Supabase layer is in active progress but is not yet complete or enabled by default.
-
-Once the migration is finalised, the app will support real-time collaboration between Jamie and Beth, automatic cross-device syncing, and easier integration with the Wedding Guest Site.
+- **Live site:** [baliplanner.netlify.app](https://baliplanner.netlify.app). Netlify project `baliplanner` builds `main` from [github.com/v8ws59j2m2-bot/Wedding-Planner](https://github.com/v8ws59j2m2-bot/Wedding-Planner).
+- **Sign-in:** The app asks for an email and password before the dashboard. That is a user inside the Supabase project, not the Supabase dashboard login.
+- **Data:** After sign-in, guests, budget, vendors, events, seating, accommodation, wedding details, and the mood board are stored in Supabase project `gezexfnzemsqhrvizetj`.
+- **Dashboard access:** Sign in to GitHub as `v8ws59j2m2-bot` with Apple, then choose **Sign in with GitHub** on Supabase. There is no separate Supabase password. See `SUPABASE_SETUP.md`.
+- **Beth notes:** The page-change note is off (`LOVE_NOTES_ENABLED` in `src/components/LoveNote.tsx`). That is what production is running.
 
 ---
 
 ## Who It's For
 
-The app is designed for Jamie and Beth to use together during their planning journey. It is being actively developed toward full Supabase-backed real-time collaboration while keeping the current smooth local experience as the foundation.
+The app is for Jamie and Beth's planning. Each Supabase login has its own private rows. Sharing one planner means using the same app login.
 
 ---
 
@@ -70,25 +83,21 @@ The app supports GBP (£) and IDR (Rp). All amounts are stored internally in GBP
 
 ---
 
-## Current Architecture & Migration Status
+## Current Architecture
 
-The app currently has **two parallel data layers**:
+The published app (GitHub `main`) loads and saves through `src/lib/supabaseData.ts`, mostly via `src/hooks/useSupabaseStorage.ts`. `src/services/dataService.ts` on `main` is still the browser-storage helper used for import parsing and the JSON download. It is not the live store.
 
-- **`src/services/dataService.ts`** — The active localStorage implementation used by the UI today.
-- **`src/lib/supabaseData.ts`** — A complete Supabase implementation (with realtime, auth, and dedicated tables) that has been built and is ready to become the primary data layer.
+A free Supabase project pauses when it is left unused. The hostname then stops resolving and the sign-in screen cannot reach the server until the project is restored. Steps are in `docs/MAINTENANCE.md`.
 
-Authentication and migration tooling already exist. The UI was designed so that switching the data service requires minimal changes to the pages themselves.
-
-**Current state:** Local mode is the default experience. Supabase mode is available for testing/migration but is not yet the primary path for all users.
+This computer also has uncommitted files that add a `VITE_DATA_SOURCE` switch. That switch is not on `main` and is not what Netlify builds. Do not describe the live site from those files. See `docs/MAINTENANCE.md`.
 
 ---
 
 ## Known Limitations (Current Version)
 
-- **Migration in progress** — The app is transitioning from local-only to Supabase-backed. Full real-time multi-device sync and collaboration is not yet the default experience.
-- **Single device (local mode)** — While using localStorage, data does not sync between devices automatically.
-- **Browser-bound (local mode)** — Clearing browser data or using private/incognito mode will lose local data.
-- **Authentication required for Supabase mode** — Once fully migrated, signing in will be required to access data across devices.
+- **One login, one dataset** — Jamie and Beth do not see the same planner unless they sign in as the same app user.
+- **Paused backend** — If the free Supabase project sleeps, the site still loads but sign-in cannot reach the database until it is restored.
+- **Export is the backup** — Use **Export** in the top bar. The file is the in-memory planner plus wedding details.
 - **Mood Board performance** — Large numbers of high-resolution images can still impact performance on some devices.
 
 ---
@@ -97,7 +106,7 @@ Authentication and migration tooling already exist. The UI was designed so that 
 
 - **React 19** + **TypeScript**
 - **Vite**
-- **Supabase** (Postgres + Realtime + Storage) — backend in active migration
+- **Supabase** (Postgres + Auth + Realtime + Storage) — live data store for the published site
 - **@hello-pangea/dnd** — drag and drop
 - **Recharts** — charts
 - **xlsx (SheetJS)** — Excel template generation
@@ -106,9 +115,7 @@ Authentication and migration tooling already exist. The UI was designed so that 
 
 ## Getting Started
 
-Open the app in your browser. All data is stored locally by default. Use the **Export** button regularly to back up your data as a JSON file.
-
-For the latest on the Supabase migration and multi-device support, check the **Current Architecture & Migration Status** section above.
+Open [baliplanner.netlify.app](https://baliplanner.netlify.app) and sign in. Use **Export** regularly. Day-to-day use is in `QUICK_START.md`. Deploys, keys, and a paused project are in `docs/MAINTENANCE.md`.
 
 ---
 

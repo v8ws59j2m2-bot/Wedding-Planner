@@ -8,7 +8,7 @@ Welcome to your wedding planning app. This guide will get you up and running in 
 
 ## 1. Opening the App
 
-The app runs in your browser. Open it the same way you would any website. Once it's open, you'll see the **Dashboard** — your central planning hub.
+Open [baliplanner.netlify.app](https://baliplanner.netlify.app) and sign in with the planner email and password. That is the app login, not the Supabase dashboard. After sign-in you land on the **Dashboard**.
 
 The **sidebar** on the left is your main navigation.
 
@@ -34,26 +34,22 @@ This information is used throughout the app — the countdown timer, the guest i
 
 ## 3. Section by Section — What Each One Is For
 
-| Section          | What it's for                                      |
-|------------------|----------------------------------------------------|
-| **Dashboard**    | Overview of everything. Check here regularly.      |
-| **Guest List**   | Add and manage all your confirmed guests.          |
-| **Budget**       | Track all expenses — both confirmed and provisional. |
-| **Checklist**    | Your to-do list, organised by planning phase.      |
-| **Vendors**      | Directory of all your suppliers and their details. |
-| **Mood Board**   | Visual inspiration board with images and colour palette. |
-| **Seating Chart**| Assign guests to tables using drag and drop.       |
-| **Accommodation**| Assign guests to rooms across your villas.         |
-| **Finances**     | Big-picture financial overview — charts and insights. |
-| **Events**       | Plan wedding events and optional group activities. |
-| **Itinerary**    | Build and print a guest welcome book / schedule.   |
-| **Settings**     | Wedding details, currency, data backup, and templates. |
+| Section | What it's for |
+|---|---|
+| **Dashboard** | Overview of everything. Check here regularly. |
+| **Guests** | Guest list, plus travel and logistics. |
+| **Budget & Payments** | Expenses, upcoming payments, and the financial overview. |
+| **Vendors** | Directory of suppliers and their details. |
+| **Accommodation** | Assign guests to rooms across the villas. |
+| **Seating** | Assign guests to tables. |
+| **Planning** | Events, itinerary, checklist, and mood board. |
+| **Settings** | Wedding details, currency, backup, and templates. |
 
 ---
 
 ## 4. Adding Guests
 
-Go to **Guest List** and click **Add guest**.
+Go to **Guests**, stay on **Guest List**, and click **Add guest**.
 
 For each guest, fill in:
 - First name and last name
@@ -81,7 +77,7 @@ Fill in the vendor's name, category, status (Quoted or Booked), and any contact 
 
 ## 6. Budget & Expenses
 
-Go to **Budget** and click **Add expense**.
+Go to **Budget & Payments**, stay on **Budget**, and click **Add expense**.
 
 Every expense must be linked to a vendor.
 
@@ -98,7 +94,7 @@ After saving, you can record payments (deposits, balances, etc.). The app calcul
 
 ## 7. Events & Activities
 
-Go to **Events** and click **Add**.
+Go to **Planning**, stay on **Events**, and click **Add**.
 
 **Wedding Events** (ceremony, welcome dinner, reception, etc.):
 - Add title, date, time, location, dress code, and transport info.
@@ -122,7 +118,7 @@ You can also request extra bedding (cots, rollaways) on any room.
 
 ## 9. Guest Itinerary
 
-Go to **Itinerary** once you've added events.
+Go to **Planning**, then **Itinerary**, once you have added events.
 
 Tick or untick events to control what appears in the printed document.
 
@@ -136,7 +132,7 @@ Click **Print / Save PDF** to export a clean, formatted guest welcome book.
 
 **This is important. Export regularly.**
 
-The app currently stores data locally in your browser by default.
+On the live site, the planner you are looking at is saved to Supabase for the account you signed in with. A different email is a different planner. Export still matters: it is your copy if the project is paused or you need to move the data.
 
 **To export:** Click the **Export** button in the top bar at any time. This downloads a single `.json` file containing everything.
 
@@ -146,7 +142,7 @@ The app currently stores data locally in your browser by default.
 
 **Tip:** Email yourself a backup after every significant planning session.
 
-> **Note on Supabase migration:** A Supabase backend has been built and migration tooling is available. Once the migration is complete, data will sync across devices automatically and backups will happen in the cloud. You will be notified when this becomes the default experience.
+> **If sign-in fails because the page cannot reach the server:** the Supabase project may be paused. The live sign-in screen shows that error as returned. Recovery steps are in `docs/MAINTENANCE.md`.
 
 ---
 
