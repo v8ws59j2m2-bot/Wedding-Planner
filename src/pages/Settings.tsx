@@ -341,6 +341,7 @@ export function Settings({ data, setData }: Props) {
       moodImages:[...(d.moodImages ?? []), ...(imported.moodImages ?? [])],
       events:      [...(d.events ?? []), ...(imported.events ?? [])],
       travelInfo:  [...(d.travelInfo ?? []), ...(imported.travelInfo ?? [])],
+      guestStayPayments: [...(d.guestStayPayments ?? []), ...(imported.guestStayPayments ?? [])],
     }))
     setImportFile(null)
   }
@@ -354,12 +355,13 @@ export function Settings({ data, setData }: Props) {
       moodImages:imported.moodImages ?? [],
       events:     imported.events     ?? [],
       travelInfo: imported.travelInfo ?? [],
+      guestStayPayments: imported.guestStayPayments ?? [],
     })
     setImportFile(null)
   }
 
   const handleClear = () => {
-    setData({ guests: [], budget: [], checklist: [], vendors: [], moodImages: [], events: [], travelInfo: [] })
+    setData({ guests: [], budget: [], checklist: [], vendors: [], moodImages: [], events: [], travelInfo: [], guestStayPayments: [] })
     localStorage.removeItem('jb-seating')
     localStorage.removeItem('jb-moodboard')
     localStorage.removeItem('jb-timeline')

@@ -340,7 +340,7 @@ function GuestModal({ initial, existingParties, onSave, onClose }: {
           }}>Cancel</button>
           <button onClick={() => {
             if (!canSave) return
-            const guest: Guest = { id: initial?.id ?? uid(), ...makeGuest(form) }
+            const guest: Guest = { ...initial, id: initial?.id ?? uid(), ...makeGuest(form) }
             onSave(guest)
           }} disabled={!canSave} style={{
             flex: 2, padding: 10, borderRadius: 10, fontSize: 13, fontWeight: 600,

@@ -1,9 +1,10 @@
 import { useState, useEffect } from 'react'
 import { loadAccommodation } from '../lib/supabaseData'
-import { Users, PiggyBank, CheckSquare, Store, ArrowRight, Calendar, Sparkles } from 'lucide-react'
+import { Users, PiggyBank, CheckSquare, Store, ArrowRight, Calendar, Sparkles, Banknote } from 'lucide-react'
 import { LilySprig, SmallLeaf, Frangipani, TempleGate, PalmFrond, RiceFields, BaliBorder, BatikCorner } from '../components/Botanicals'
 import { useIsMobile } from '../hooks/useIsMobile'
 import { guestAgeCategory, countOverduePayments } from '../lib/helpers'
+import { countOverdueStayParties, GUESTS_TAB_STORAGE_KEY } from '../lib/stayPayments'
 import { useWeddingDetails } from '../hooks/useWeddingDetails'
 import type { AppData, Page } from '../types'
 
@@ -242,6 +243,7 @@ export function Dashboard({ data, onNavigate }: Props) {
 
   // Check overdue payment stages / final balance deadlines
   const overduePayments = countOverduePayments(data.budget)
+  const overdueStayParties = countOverdueStayParties(data.guests, data.guestStayPayments)
 
   // Check accommodation allocations (from Supabase, no local fallback)
   const [accomData, setAccomData] = useState<{ rooms: { guestIds: string[] }[] }>({ rooms: [] })
@@ -287,6 +289,16 @@ export function Dashboard({ data, onNavigate }: Props) {
       action: 'Add vendors',
       page: 'vendors' as Page,
     },
+    overdueStayParties > 0 && {
+      icon: Banknote, color: '#C47A52',
+      title: `${overdueStayParties} ${overdueStayParties > 1 ? 'parties have' : 'party has'} an overdue stay payment`,
+      description: 'An accommodation and meals instalment is past its date and not covered yet.',
+      action: 'View payments',
+      page: 'guests' as Page,
+      before: () => {
+        try { sessionStorage.setItem(GUESTS_TAB_STORAGE_KEY, 'payments') } catch { /* ignore */ }
+      },
+    },
     overduePayments > 0 && {
       icon: PiggyBank, color: '#C47A52',
       title: `${overduePayments} payment${overduePayments > 1 ? 's' : ''} overdue`,
@@ -304,6 +316,7 @@ export function Dashboard({ data, onNavigate }: Props) {
   ].filter(Boolean).slice(0, 4) as {
     icon: React.ElementType; color: string; title: string
     description: string; action: string; page: Page
+    before?: () => void
   }[]
 
   const isAllClear = attentionItems.length === 0
@@ -477,7 +490,10 @@ export function Dashboard({ data, onNavigate }: Props) {
                 title={item.title}
                 description={item.description}
                 action={item.action}
-                onAction={() => onNavigate(item.page)}
+                onAction={() => {
+                  item.before?.()
+                  onNavigate(item.page)
+                }}
               />
             ))}
           </div>

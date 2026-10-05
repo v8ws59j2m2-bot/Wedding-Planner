@@ -19,7 +19,7 @@ import type { AppData } from '../types'
 
 const DEFAULT: AppData = {
   guests: [], budget: [], checklist: [], vendors: [],
-  moodImages: [], events: [], travelInfo: [],
+  moodImages: [], events: [], travelInfo: [], guestStayPayments: [],
 }
 
 const SAVE_ECHO_IGNORE_MS = 1200
@@ -251,6 +251,7 @@ export function useSupabaseStorage() {
         ...(result.data.moodImages!== undefined && { moodImages: result.data.moodImages }),
         ...(result.data.events    !== undefined && { events:     result.data.events }),
         ...(result.data.travelInfo!== undefined && { travelInfo: result.data.travelInfo }),
+        ...(result.data.guestStayPayments !== undefined && { guestStayPayments: result.data.guestStayPayments }),
       }))
     }
     reader.readAsText(file)

@@ -207,9 +207,22 @@ export interface ColorSwatch {
   name: string
 }
 
+// ── Guest stay payments (accommodation and meals) ─────────────────────────────
+// Money guests pay Jamie and Beth. Amounts are GBP.
+// A party shares one balance. Guests with no party name are their own party.
+export interface GuestStayPayment {
+  id: string
+  /** `party:<lowercased name>` or `guest:<guest id>` */
+  partyKey: string
+  date: string       // ISO date the money was received
+  amount: number     // GBP
+  note?: string
+}
+
 // ── App Data (root shape) ─────────────────────────────────────────────────────
 // This is what gets serialised to localStorage and exported/imported as JSON.
 // When using Supabase each top-level key maps to a table.
+// guestStayPayments is stored inside the guests JSON on Supabase (no extra column).
 export interface AppData {
   guests:      Guest[]
   budget:      BudgetItem[]
@@ -218,6 +231,7 @@ export interface AppData {
   moodImages:  MoodImage[]
   events:      Event[]
   travelInfo:  GuestTravel[]
+  guestStayPayments?: GuestStayPayment[]
 }
 
 // ── Wedding Details ───────────────────────────────────────────────────────────

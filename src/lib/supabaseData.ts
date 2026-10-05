@@ -1,6 +1,7 @@
 import type { RealtimeChannel } from '@supabase/supabase-js'
 import { supabase } from './supabase'
 import type { AppData, WeddingDetails } from '../types'
+import { detachStayLedger, embedStayLedger } from './stayPayments'
 
 export type ConnectionStatus = 'connecting' | 'connected' | 'reconnecting' | 'disconnected'
 
@@ -14,7 +15,7 @@ const RECONNECT_MAX_MS = 30_000
 
 export const DEFAULT_APP_DATA: AppData = {
   guests: [], budget: [], checklist: [], vendors: [],
-  moodImages: [], events: [], travelInfo: [],
+  moodImages: [], events: [], travelInfo: [], guestStayPayments: [],
 }
 
 export const DEFAULT_WEDDING_DETAILS: WeddingDetails = {
@@ -96,22 +97,28 @@ async function withRetry<T>(fn: () => Promise<T>, maxAttempts = 3): Promise<T> {
 
 // Map a Supabase app_data row → AppData (shared by load + realtime)
 export function mapAppDataRow(row: Record<string, unknown>): AppData {
-  const guests = ((row.guests as AppData['guests']) ?? []).map(g => {
+  const storedGuests = ((row.guests as AppData['guests']) ?? []).map(g => {
     if (!g.firstName && !g.lastName && g.name) {
       const parts = g.name.split('&')[0].trim().split(' ')
       return { ...g, firstName: parts[0] ?? '', lastName: parts.slice(1).join(' ') || undefined }
     }
     return g
   })
+  const detached = detachStayLedger(storedGuests)
+  const columnPayments = row.guest_stay_payments as AppData['guestStayPayments']
+  const guestStayPayments = (columnPayments && columnPayments.length > 0)
+    ? columnPayments
+    : detached.payments
 
   return {
-    guests,
+    guests: detached.guests,
     budget:     (row.budget      as AppData['budget'])     ?? [],
     checklist:  (row.checklist   as AppData['checklist'])  ?? [],
     vendors:    (row.vendors     as AppData['vendors'])    ?? [],
     moodImages: (row.mood_images as AppData['moodImages']) ?? [],
     events:     (row.events      as AppData['events'])     ?? [],
     travelInfo: (row.travel_info as AppData['travelInfo']) ?? [],
+    guestStayPayments,
   }
 }
 
@@ -131,11 +138,15 @@ export async function loadAppData(): Promise<AppData> {
 
 export async function saveAppData(appData: AppData): Promise<void> {
   const userId = await getUserId()
-  if (!userId) return
+  if (!userId) {
+    // Never fail silently — the screen needs a real error.
+    throw new Error('Not authenticated — cannot save app data to Supabase. Sign in and try again.')
+  }
   await withRetry(async () => {
     const { error } = await supabase.from('app_data').upsert({
       user_id: userId,
-      guests: appData.guests, budget: appData.budget,
+      guests: embedStayLedger(appData.guests, appData.guestStayPayments),
+      budget: appData.budget,
       checklist: appData.checklist, vendors: appData.vendors,
       mood_images: appData.moodImages, events: appData.events,
       travel_info: appData.travelInfo,
@@ -265,7 +276,9 @@ export async function loadWeddingDetails(): Promise<WeddingDetails> {
 
 export async function saveWeddingDetails(details: WeddingDetails): Promise<void> {
   const userId = await getUserId()
-  if (!userId) return
+  if (!userId) {
+    throw new Error('Not authenticated — cannot save wedding details to Supabase. Sign in and try again.')
+  }
   await withRetry(async () => {
     const { error } = await supabase.from('wedding_details')
       .upsert({ user_id: userId, ...details }, { onConflict: 'user_id' })
@@ -285,7 +298,9 @@ export async function loadSeating(): Promise<{ tables: any[] }> {
 
 export async function saveSeating(seatingData: { tables: any[] }): Promise<void> {
   const userId = await getUserId()
-  if (!userId) return
+  if (!userId) {
+    throw new Error('Not authenticated — cannot save seating to Supabase. Sign in and try again.')
+  }
   await withRetry(async () => {
     const { error } = await supabase.from('seating_data')
       .upsert({ user_id: userId, tables: seatingData.tables }, { onConflict: 'user_id' })
@@ -306,12 +321,17 @@ export async function loadTimeline(): Promise<any[]> {
 
 export async function saveTimeline(timeline: any[]): Promise<void> {
   const userId = await getUserId()
-  if (!userId) return
+  if (!userId) {
+    throw new Error('Not authenticated — cannot save timeline to Supabase. Sign in and try again.')
+  }
   await withRetry(async () => {
     // Upsert a row with just timeline — merge with existing data server-side
     const { data: existing } = await supabase
       .from('app_data').select('*').eq('user_id', userId).single()
-    if (!existing) return // no app_data row yet — skip, will be created on next full save
+    if (!existing) {
+      console.warn('[sync] saveTimeline skipped — no app_data row yet; save app data first')
+      return
+    }
     const { error } = await supabase.from('app_data')
       .update({ timeline } as any)
       .eq('user_id', userId)
@@ -772,7 +792,9 @@ export async function loadAccommodation(): Promise<{ rooms: any[] }> {
 
 export async function saveAccommodation(accomData: { rooms: any[] }): Promise<void> {
   const userId = await getUserId()
-  if (!userId) return
+  if (!userId) {
+    throw new Error('Not authenticated — cannot save accommodation to Supabase. Sign in and try again.')
+  }
   await withRetry(async () => {
     const { error } = await supabase.from('accommodation_data')
       .upsert({ user_id: userId, rooms: accomData.rooms }, { onConflict: 'user_id' })

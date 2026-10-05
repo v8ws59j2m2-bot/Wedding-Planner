@@ -1,11 +1,13 @@
 import { useState } from 'react'
 import { useLoveNoteOnNavigate } from '../components/LoveNote'
-import { Users, Plane } from 'lucide-react'
+import { Users, Plane, Banknote } from 'lucide-react'
 import { Guests } from './Guests'
 import { TravelLogistics } from './TravelLogistics'
+import { StayPayments } from './StayPayments'
+import { countOverdueStayParties, GUESTS_TAB_STORAGE_KEY } from '../lib/stayPayments'
 import type { AppData } from '../types'
 
-export type GuestsTab = 'list' | 'travel'
+export type GuestsTab = 'list' | 'travel' | 'payments'
 
 interface Props {
   data: AppData
@@ -13,8 +15,17 @@ interface Props {
   initialTab?: GuestsTab
 }
 
+function initialGuestsTab(fallback: GuestsTab): GuestsTab {
+  try {
+    const wanted = sessionStorage.getItem(GUESTS_TAB_STORAGE_KEY)
+    sessionStorage.removeItem(GUESTS_TAB_STORAGE_KEY)
+    if (wanted === 'payments' || wanted === 'travel' || wanted === 'list') return wanted
+  } catch { /* private mode */ }
+  return fallback
+}
+
 export function GuestsPage({ data, setData, initialTab = 'list' }: Props) {
-  const [tab, setTab] = useState<GuestsTab>(initialTab)
+  const [tab, setTab] = useState<GuestsTab>(() => initialGuestsTab(initialTab))
   useLoveNoteOnNavigate(`guests-${tab}`)
 
   const missingTravel = (() => {
@@ -26,9 +37,12 @@ export function GuestsPage({ data, setData, initialTab = 'list' }: Props) {
     }).length
   })()
 
+  const overdueStay = countOverdueStayParties(data.guests, data.guestStayPayments)
+
   const TABS = [
-    { key: 'list'   as GuestsTab, label: 'Guest List',          icon: Users,  badge: 0 },
-    { key: 'travel' as GuestsTab, label: 'Travel & Logistics',  icon: Plane,  badge: missingTravel },
+    { key: 'list'     as GuestsTab, label: 'Guest List',          icon: Users,    badge: 0 },
+    { key: 'payments' as GuestsTab, label: 'Stay payments',       icon: Banknote, badge: overdueStay },
+    { key: 'travel'   as GuestsTab, label: 'Travel & Logistics',  icon: Plane,    badge: missingTravel },
   ]
 
   return (
@@ -66,8 +80,9 @@ export function GuestsPage({ data, setData, initialTab = 'list' }: Props) {
 
       {/* Tab content */}
       <div>
-        {tab === 'list'   && <Guests data={data} setData={setData}/>}
-        {tab === 'travel' && <TravelLogistics data={data} setData={setData}/>}
+        {tab === 'list'     && <Guests data={data} setData={setData}/>}
+        {tab === 'payments' && <StayPayments data={data} setData={setData}/>}
+        {tab === 'travel'   && <TravelLogistics data={data} setData={setData}/>}
       </div>
     </div>
   )

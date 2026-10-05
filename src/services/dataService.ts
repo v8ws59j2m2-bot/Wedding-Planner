@@ -295,6 +295,7 @@ export function parseImport(text: string, filename: string): ImportResult {
         moodImages: parsed.moodImages ?? undefined,
         events:     parsed.events    ?? undefined,
         travelInfo: parsed.travelInfo ?? undefined,
+        guestStayPayments: parsed.guestStayPayments ?? undefined,
       }
       return { success: true, data }
     }
