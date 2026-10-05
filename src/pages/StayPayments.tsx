@@ -1,5 +1,5 @@
 import { useMemo, useState, type CSSProperties } from 'react'
-import { Banknote, Plus, Trash2 } from 'lucide-react'
+import { Banknote, FileSpreadsheet, Plus, Trash2 } from 'lucide-react'
 import { Frangipani, SmallLeaf } from '../components/Botanicals'
 import { uid, guestDisplayName } from '../lib/helpers'
 import {
@@ -10,6 +10,7 @@ import {
   type StayInstalmentStatus,
   type StayParty,
 } from '../lib/stayPayments'
+import { downloadStayPaymentsWorkbook } from '../lib/stayPaymentsExcel'
 import type { AppData, GuestStayPayment } from '../types'
 
 interface Props {
@@ -110,12 +111,28 @@ export function StayPayments({ data, setData }: Props) {
   return (
     <div className="page-content" style={{ maxWidth: 1000 }}>
       <div style={{ marginBottom: 28 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6 }}>
-          <h1 style={{ fontFamily: 'Playfair Display, serif', fontSize: 30, fontStyle: 'italic', color: '#3B2A22', margin: 0 }}>
-            Stay payments
-          </h1>
-          <SmallLeaf size={22} opacity={0.5} rotate={-15} />
-          <Frangipani size={26} opacity={0.5} />
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', marginBottom: 6 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <h1 style={{ fontFamily: 'Playfair Display, serif', fontSize: 30, fontStyle: 'italic', color: '#3B2A22', margin: 0 }}>
+              Stay payments
+            </h1>
+            <SmallLeaf size={22} opacity={0.5} rotate={-15} />
+            <Frangipani size={26} opacity={0.5} />
+          </div>
+          <button
+            type="button"
+            onClick={() => downloadStayPaymentsWorkbook(parties)}
+            style={{
+              display: 'inline-flex', alignItems: 'center', gap: 6,
+              padding: '8px 12px', borderRadius: 10, cursor: 'pointer',
+              border: '1.5px solid #E8D5A3', background: '#FAF3E6',
+              color: '#3B2A22', fontSize: 13, fontWeight: 600,
+              fontFamily: 'Inter, sans-serif',
+            }}
+          >
+            <FileSpreadsheet size={15} strokeWidth={2} />
+            Export Excel
+          </button>
         </div>
         <p style={{ fontSize: 13, color: '#7A6657', maxWidth: 640, lineHeight: 1.55 }}>
           Accommodation and meals. The schedule is per guest, and each party shares one balance.

@@ -34,7 +34,7 @@ Sidebar ids in `src/components/Sidebar.tsx`, rendered from `src/App.tsx`:
 | Id | Label | What it mounts |
 |---|---|---|
 | `dashboard` | Dashboard | `pages/Dashboard.tsx` |
-| `guests` | Guests | `pages/GuestsPage.tsx` — Guest List, Travel & Logistics |
+| `guests` | Guests | `pages/GuestsPage.tsx` — Guest List, Stay payments, Travel & Logistics |
 | `budget-payments` | Budget & Payments | `pages/BudgetPaymentsPage.tsx` — Budget, Upcoming Payments, Financial Overview |
 | `vendors` | Vendors | `pages/Vendors.tsx` |
 | `accommodation` | Accommodation | `pages/Accommodation.tsx` |
@@ -50,7 +50,7 @@ After sign-in, the live store is Supabase. Row Level Security keeps every row on
 
 | Concern | Table or bucket | Code that talks to it |
 |---|---|---|
-| Guests, budget, checklist, vendors, events, travel, legacy mood images | `app_data` (one JSON row per user) | `useSupabaseStorage` → `supabaseData` |
+| Guests, stay payments, budget, checklist, vendors, events, travel, legacy mood images | `app_data` (one JSON row per user) | `useSupabaseStorage` → `supabaseData` |
 | Wedding details | `wedding_details` | `supabaseData`, Settings |
 | Seating tables | `seating_data` | `pages/SeatingChart.tsx` |
 | Rooms | `accommodation_data` | `pages/Accommodation.tsx` |
@@ -59,6 +59,8 @@ After sign-in, the live store is Supabase. Row Level Security keeps every row on
 | Day-of timeline | column `app_data.timeline`, also read through timeline helpers | Checklist |
 
 `app_data` is the original localStorage shape, stored as JSONB. There is not a separate SQL table per guest.
+
+Stay payments do not have their own column. On save, `embedStayLedger` in `src/lib/stayPayments.ts` attaches the ledger to the first guest under `__guestStayPayments`. On load, `detachStayLedger` in `mapAppDataRow` moves it back onto `AppData.guestStayPayments` and strips it off the guest objects. An empty ledger is omitted, so a cleared log does not leave that field behind. The Guests editor must keep unknown fields when a guest is saved (`saveGuest` spreads the existing guest) or an edit of the first guest can drop the ledger. **Export Excel** (`src/lib/stayPaymentsExcel.ts`) only downloads a workbook. It does not write to Supabase. The schedule is fixed in `STAY_SCHEDULE`: six instalments, £556 per attending guest. A party key is `party:<lowercased name>`, or `guest:<id>` when the party name is blank. Overdue means today is after that due date and payments so far are below the cumulative amount due. The dashboard attention item and the Stay payments tab badge use that count. The Guests sidebar badge is still the missing-travel count.
 
 `supabase-setup.sql` adds `app_data`, `seating_data`, `accommodation_data`, and `moodboard_data` to the realtime publication. This review did not re-check that publication on the live database. The published `useSupabaseStorage` debounces saves (echo ignore about 1.2 seconds), subscribes for remote changes, and runs a health check about every 20 seconds.
 

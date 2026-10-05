@@ -17,6 +17,84 @@ const TOUR_LINKS: TourLink[] = [
   { tourId: 'travel',        label: 'Travel & Logistics',   description: 'Flight details, arrivals, departures, and transfers',             emoji: '✈️' },
 ]
 
+const FEATURES: { area: string; where: string; summary: string }[] = [
+  {
+    area: 'Dashboard',
+    where: 'Dashboard',
+    summary: 'Countdown, guest and budget totals, and an attention list. It flags overdue tasks, vendor payments, and stay-payment instalments.',
+  },
+  {
+    area: 'Guest list',
+    where: 'Guests → Guest List',
+    summary: 'Add guests with a party name, adult or child, meal, email, and notes. People who share a party name are grouped. Import a guest spreadsheet from Settings.',
+  },
+  {
+    area: 'Stay payments',
+    where: 'Guests → Stay payments',
+    summary: 'What guests pay you for accommodation and meals. Each attending guest, including children, owes £556 across six dates. A party shares one balance. Log each payment received. The page shows total due, received, outstanding, and overdue. Export Excel downloads the parties, instalments, and payments.',
+  },
+  {
+    area: 'Travel and logistics',
+    where: 'Guests → Travel & Logistics',
+    summary: 'Flights, arrival and departure times, and transfers. The Guests badge counts people still missing travel details.',
+  },
+  {
+    area: 'Budget and expenses',
+    where: 'Budget & Payments → Budget',
+    summary: 'What you pay suppliers. Booked expenses count toward totals. Quoted expenses stay visible but are left out until you confirm them. Each expense is linked to a vendor.',
+  },
+  {
+    area: 'Upcoming payments',
+    where: 'Budget & Payments → Upcoming Payments',
+    summary: 'Supplier deposits and balances, with due dates. The sidebar badge counts overdue vendor payments, which is separate from guest stay payments.',
+  },
+  {
+    area: 'Financial overview',
+    where: 'Budget & Payments → Financial Overview',
+    summary: 'Booked budget against what you have paid suppliers, with a category breakdown. The chart uses amounts paid, not the full budget.',
+  },
+  {
+    area: 'Vendors',
+    where: 'Vendors',
+    summary: 'Supplier directory: name, category, Quoted or Booked, and contact details. Add a vendor before you can attach an expense.',
+  },
+  {
+    area: 'Accommodation',
+    where: 'Accommodation',
+    summary: 'Villa and guesthouse rooms, with capacity. Drag guests from Unallocated onto a room. Extra bedding can be requested, and an over-full room is flagged.',
+  },
+  {
+    area: 'Seating',
+    where: 'Seating',
+    summary: 'Name tables, set them as round or rectangular, and drag guests into seats.',
+  },
+  {
+    area: 'Events and activities',
+    where: 'Planning → Events',
+    summary: 'Wedding events (time, place, dress, transport) and optional activities with a cost per person and who has paid.',
+  },
+  {
+    area: 'Guest itinerary',
+    where: 'Planning → Itinerary',
+    summary: 'Choose which events appear, add a welcome note, and print or save a PDF welcome book.',
+  },
+  {
+    area: 'Checklist',
+    where: 'Planning → Checklist',
+    summary: 'Tasks with due dates. Drag to reorder. Overdue tasks show a badge on Planning.',
+  },
+  {
+    area: 'Mood board',
+    where: 'Planning → Mood Board',
+    summary: 'Inspiration images by category, plus a colour palette.',
+  },
+  {
+    area: 'Settings and backup',
+    where: 'Settings, and Export in the top bar',
+    summary: 'Wedding date, venue, and names. Switch the display between pounds and rupiah. Export saves a JSON backup of this login. Import can merge or replace. Excel templates are for bulk import. The stay-payment Excel file is separate and is downloaded from Guests → Stay payments.',
+  },
+]
+
 const FAQS = [
   {
     q: 'What\'s the difference between Booked and Quoted?',
@@ -44,7 +122,27 @@ const FAQS = [
   },
   {
     q: 'What does the overdue badge on Budget & Payments mean?',
-    a: 'It means one or more payment stages or final balance due dates have passed and the payment hasn\'t been marked as settled. Go to the Upcoming Payments tab to see which items.',
+    a: 'It means one or more supplier payment stages or final balance due dates have passed and the payment hasn\'t been marked as settled. Go to the Upcoming Payments tab to see which items. Guest stay payments are separate and show on Guests → Stay payments.',
+  },
+  {
+    q: 'How do stay payments work?',
+    a: 'Guests → Stay payments tracks money guests pay you for accommodation and meals. The schedule is £25, £100, £110, £110, £111, and £100, which is £556 per attending guest, including children. People with the same party name share one balance. A guest with no party name is tracked alone. Someone marked as not attending is left off. Log the amount, the date it arrived, and an optional note. Payments apply to the earliest date first.',
+  },
+  {
+    q: 'When is a stay payment overdue?',
+    a: 'After the instalment date, if the payments logged so far do not cover the amount due by then. The row turns terracotta, the Stay payments tab shows a count, and the dashboard lists it. Nothing is overdue before 30 November 2026.',
+  },
+  {
+    q: 'Will a new guest appear on Stay payments?',
+    a: 'Yes, as soon as they are saved, if they are attending. They add £556 to the amount due. The same party name joins the existing balance. A blank party name gets its own card.',
+  },
+  {
+    q: 'How do I open the stay payments in Excel?',
+    a: 'Go to Guests → Stay payments and click Export Excel. The file has a sheet for parties, one for each instalment, one for payments received, and the schedule. Amounts are in pounds so you can add them up. The copy in the planner stays in the database.',
+  },
+  {
+    q: 'Where is my planner saved?',
+    a: 'After you sign in, the planner is stored in the database for that email and password. A different login is a different planner. Use Export in the top bar for a JSON backup. Stay payments are included in that backup and are not kept only in this browser.',
   },
 ]
 
@@ -57,12 +155,17 @@ export function HelpPanel({ onStartTour }: Props) {
   const [search, setSearch] = useState('')
   const [openFaq, setOpenFaq] = useState<number | null>(null)
 
-  const filteredFaqs = search.trim()
-    ? FAQS.filter(f =>
-        f.q.toLowerCase().includes(search.toLowerCase()) ||
-        f.a.toLowerCase().includes(search.toLowerCase())
-      )
+  const needle = search.trim().toLowerCase()
+  const filteredFaqs = needle
+    ? FAQS.filter(f => f.q.toLowerCase().includes(needle) || f.a.toLowerCase().includes(needle))
     : FAQS
+  const filteredFeatures = needle
+    ? FEATURES.filter(f =>
+        f.area.toLowerCase().includes(needle) ||
+        f.where.toLowerCase().includes(needle) ||
+        f.summary.toLowerCase().includes(needle)
+      )
+    : FEATURES
 
   return (
     <>
@@ -99,7 +202,7 @@ export function HelpPanel({ onStartTour }: Props) {
           {/* Slide-in panel */}
           <div style={{
             position: 'fixed', top: 0, right: 0, bottom: 0,
-            width: 380, zIndex: 5001,
+            width: 'min(400px, 100vw)', zIndex: 5001,
             background: '#FFF8EE', borderLeft: '1.5px solid #E8D5A3',
             boxShadow: '-8px 0 32px rgba(42,30,20,0.12)',
             display: 'flex', flexDirection: 'column',
@@ -145,6 +248,27 @@ export function HelpPanel({ onStartTour }: Props) {
                     boxSizing: 'border-box',
                   }}
                 />
+              </div>
+
+              <div style={{ marginBottom: 24 }}>
+                <p style={{ fontSize: 11, fontWeight: 700, color: '#7A6657', letterSpacing: '0.1em', marginBottom: 10 }}>
+                  {needle ? 'MATCHING FEATURES' : 'FEATURES'}
+                </p>
+                {filteredFeatures.length === 0 && (
+                  <p style={{ fontSize: 12, color: '#A89080', fontStyle: 'italic' }}>No features match “{search}”</p>
+                )}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  {filteredFeatures.map(feature => (
+                    <div key={feature.area} style={{
+                      padding: '10px 12px', borderRadius: 10,
+                      border: '1.5px solid #E8D5A3', background: '#FAF3E6',
+                    }}>
+                      <p style={{ fontSize: 12, fontWeight: 700, color: '#3B2A22', margin: '0 0 2px' }}>{feature.area}</p>
+                      <p style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.06em', color: '#A89080', margin: '0 0 4px' }}>{feature.where}</p>
+                      <p style={{ fontSize: 12, color: '#5A4035', lineHeight: 1.5, margin: 0 }}>{feature.summary}</p>
+                    </div>
+                  ))}
+                </div>
               </div>
 
               {/* Guided tours */}

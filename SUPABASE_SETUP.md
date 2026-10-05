@@ -21,7 +21,7 @@ The publishable key is already stored in two places: the local `.env` file, and 
 
 Netlify has **no Supabase extension**. The only connection is those two environment variables. Changing them does nothing until a new production deploy runs, because Vite bakes them into the JavaScript at build time.
 
-The published app does **not** read `VITE_DATA_SOURCE`. After a person signs in, planner data is stored in this Supabase project. Each app login has its own rows.
+The published app does **not** read `VITE_DATA_SOURCE`. After a person signs in, planner data is stored in this Supabase project. Each app login has its own rows. Guest stay payments are part of that data: they are saved inside `app_data.guests`, not in the browser and not in a separate table.
 
 ## How to open the Supabase dashboard
 

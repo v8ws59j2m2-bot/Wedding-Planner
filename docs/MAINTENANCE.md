@@ -94,6 +94,8 @@ Import offers merge or replace. Replace overwrites the signed-in user's cloud ro
 
 Export after a real planning session. A paused project blocks sign-in, so a JSON file is the copy you can still open.
 
+Stay payments are inside that same `app_data` guest JSON (`__guestStayPayments` on the first guest). They are included in the JSON backup. **Guests → Stay payments → Export Excel** is an extra `.xlsx` for sorting the balances in Excel. It is not a second database. Clearing test payments means removing that hidden field, not deleting guests. There is no `service_role` key in `.env`, so a clear has to run as the signed-in app user.
+
 ## Beth page-change note
 
 `src/components/LoveNote.tsx` has `LOVE_NOTES_ENABLED`. It is `false`. Production commit `efab527` (5 October 2026) removed the popup. To turn it back on, set the constant to `true`, commit, and push `main`.

@@ -37,7 +37,7 @@ This information is used throughout the app — the countdown timer, the guest i
 | Section | What it's for |
 |---|---|
 | **Dashboard** | Overview of everything. Check here regularly. |
-| **Guests** | Guest list, plus travel and logistics. |
+| **Guests** | Guest list, stay payments, and travel and logistics. |
 | **Budget & Payments** | Expenses, upcoming payments, and the financial overview. |
 | **Vendors** | Directory of suppliers and their details. |
 | **Accommodation** | Assign guests to rooms across the villas. |
@@ -60,6 +60,37 @@ For each guest, fill in:
 - Notes (optional)
 
 **Importing guests in bulk:** Go to Settings → Download Excel Template → Guests, fill in the template, then import.
+
+A guest you add later shows up on **Stay payments** as soon as they are saved, if they are attending.
+
+---
+
+## 4a. Stay payments
+
+Go to **Guests**, then **Stay payments**.
+
+This is money guests pay you for accommodation and meals. It is not the supplier budget.
+
+Each attending guest owes **£556**:
+
+| When | Per guest |
+|---|---|
+| End of November 2026 | £25 |
+| End of March 2027 | £100 |
+| End of May 2027 | £110 |
+| End of July 2027 | £110 |
+| End of November 2027 | £111 |
+| End of February 2028 | £100 |
+
+Open a party and choose **Log payment**. Enter the amount, the date it arrived, and a note if you want one. The cards at the top add up total due, received, outstanding, and overdue.
+
+People with the same party name share one balance. A guest with no party name gets their own card. Children who are attending count. Someone marked as not attending does not.
+
+An instalment is marked overdue after its date if the payments so far do not cover it. Paying early reduces the later balance, because money is applied to the earliest date first.
+
+**Export Excel** downloads a spreadsheet of the parties, instalments, payments, and the schedule. Use that to sort and total the figures. The planner still keeps the log in the database.
+
+The **?** in the top bar lists every section, including this one.
 
 ---
 
@@ -160,7 +191,8 @@ The app supports British Pounds (£) and Indonesian Rupiah (Rp).
 
 - **Dashboard first** — start each planning session here to see what needs attention
 - **Export after every session** — takes 2 seconds
-- **Use party names** — grouping guests by family or travelling party makes navigation much easier
+- **Use party names** — grouping guests by family or travelling party makes navigation much easier, and it is how stay payments share a balance
+- **Stay payments vs budget** — stay payments are what guests pay you. Budget & Payments is what you pay suppliers
 - **Quoted vs Booked** — use Quoted for anything you're still deciding on
 - **Activities vs Budget** — activity costs are tracked on the Events page, not the Budget page
 - **Checklist for deadlines** — add everything to the Checklist with due dates

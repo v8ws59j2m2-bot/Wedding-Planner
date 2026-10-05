@@ -25,7 +25,7 @@ The published site stores each signed-in person's planner in Supabase. Two diffe
 
 - **Live site:** [baliplanner.netlify.app](https://baliplanner.netlify.app). Netlify project `baliplanner` builds `main` from [github.com/v8ws59j2m2-bot/Wedding-Planner](https://github.com/v8ws59j2m2-bot/Wedding-Planner).
 - **Sign-in:** The app asks for an email and password before the dashboard. That is a user inside the Supabase project, not the Supabase dashboard login.
-- **Data:** After sign-in, guests, budget, vendors, events, seating, accommodation, wedding details, and the mood board are stored in Supabase project `gezexfnzemsqhrvizetj`.
+- **Data:** After sign-in, guests, stay payments, budget, vendors, events, seating, accommodation, wedding details, and the mood board are stored in Supabase project `gezexfnzemsqhrvizetj`. Stay payments live in the guest record for that login. They are not kept only in the browser.
 - **Dashboard access:** Sign in to GitHub as `v8ws59j2m2-bot` with Apple, then choose **Sign in with GitHub** on Supabase. There is no separate Supabase password. See `SUPABASE_SETUP.md`.
 - **Beth notes:** The page-change note is off (`LOVE_NOTES_ENABLED` in `src/components/LoveNote.tsx`). That is what production is running.
 
@@ -44,6 +44,17 @@ A real-time overview of your wedding planning progress. Shows a live countdown t
 
 ### Guest Management
 Add and manage your confirmed guest list. Guests can be grouped by party or family name, categorised as adults or children, and given meal preferences, email addresses, and notes. Export your guest list as CSV or JSON, or import from a spreadsheet template.
+
+The Guests page has three tabs: **Guest List**, **Stay payments**, and **Travel & Logistics**.
+
+### Stay payments
+Tracks what guests pay Jamie and Beth for accommodation and meals. This is separate from the supplier budget.
+
+The schedule is per attending guest, including children: £25 at the end of November 2026, £100 at the end of March 2027, £110 at the end of May 2027, £110 at the end of July 2027, £111 at the end of November 2027, and £100 at the end of February 2028. That is £556 per guest. Guests marked as not attending are left out.
+
+People who share a party name share one balance. A guest with no party name is their own party. Log each payment with the amount, the date it arrived, and an optional note. Money is applied to the earliest instalment first. An instalment is overdue once its date has passed and the payments so far do not cover it. The page shows total due, received, outstanding, and overdue. A new attending guest appears on the page as soon as they are saved.
+
+**Export Excel** on that page downloads `.xlsx` with sheets for parties, instalments, payments received, the schedule, and a short note. Amounts are pounds, stored as numbers. The file is a copy. The log itself stays in Supabase.
 
 ### Budget & Expenses
 Track all your confirmed (Booked) and provisional (Quoted) expenses. Each expense is linked to a vendor, categorised, and supports multiple payments over time. Quoted expenses are kept visible but excluded from budget totals until confirmed. A pie chart breaks down spend by category.
@@ -109,7 +120,7 @@ This computer also has uncommitted files that add a `VITE_DATA_SOURCE` switch. T
 - **Supabase** (Postgres + Auth + Realtime + Storage) — live data store for the published site
 - **@hello-pangea/dnd** — drag and drop
 - **Recharts** — charts
-- **xlsx (SheetJS)** — Excel template generation
+- **xlsx (SheetJS)** — Excel import templates, and the stay-payment export
 
 ---
 
